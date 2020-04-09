@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # game data
 # data[chatId] = data for that chat
 phases = {} # TODO check gamePhase: 0=none, 1=join, 2=bid, 3=play
-tables = {} # store players in particular table
+tables = {} # TODO tables[chatId][user(?)] = hand ...
 joinMessages = {}   # messages waiting for players to join
 
 
@@ -47,7 +47,8 @@ def start(update, context):
         )
     elif phase == 0:
         phases[chatId] = 1
-        joinMessage = context.bot.send_message(
+        tables[chatId] = []
+        joinMessages[chatId] = context.bot.send_message(
             chat_id=chatId,
             text="Waiting for players to join ...\nJoined players:",
             reply_markup=get_markup()
