@@ -3,7 +3,7 @@ from telegram.ext import CommandHandler, CallbackQueryHandler, Filters, \
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 
-# TODO remove token if share code online, otw other ppl can control my bot
+# TODO remove token, use os.env...(follow heroku telegram bot tutorial), otw other ppl can control my bot
 token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
 
 # use_context=True for backward compatibility
@@ -16,11 +16,11 @@ logging.basicConfig(
     )
 logger = logging.getLogger(__name__)
 
-# game details
-# TODO check gamePhase: 0=none, 1=join, 2=bid, 3=play
-gamePhase = 0
-players = []
-joinMessage = None  # message waiting for players to join
+# game data
+# data[chatId] = data for that chat
+phases = {} # TODO check gamePhase: 0=none, 1=join, 2=bid, 3=play
+tables = {} # store players in particular table
+joinMessages = {}   # messages waiting for players to join
 
 
 # handlers and other helper functions
@@ -38,39 +38,45 @@ def get_markup(join=True, quit=True, addBot=True, delBot=True):
     return InlineKeyboardMarkup([firstRow, secondRow])
 
 def start(update, context):
-    global gamePhase, joinMessage
-    if gamePhase > 0:
+    chatId = update.effective_chat.id
+    phase = phases[chatId] if chatId in phases else 0
+    if phase > 0:
         context.bot.send_message(
-            chat_id=update.effective_chat.id, 
+            chat_id=chatId, 
             text="A game has already started!"
         )
-    elif gamePhase == 0:
-        gamePhase = 1
+    elif phase == 0:
+        phases[chatId] = 1
         joinMessage = context.bot.send_message(
-            chat_id=update.effective_chat.id, 
+            chat_id=chatId,
             text="Waiting for players to join ...\nJoined players:",
             reply_markup=get_markup()
         )
     else:
-        raise Exception('gamePhase  not number  or  < 0')
+        raise Exception('gamePhase  !number  or  <0')
 
 def join(update, context):
+    chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
-    if user in players:
+    if user in tables[chatId]:
         context.bot.send_message(
-            chat_id=update.effective_chat.id,
+            chat_id=chatId,
             text = '{}, you already joined the game!'.format(user.first_name)
         )
-    else:   # should be <4 players otw join btn should've been removed
-        players.append(user)
+    else:   # should be <4 players otw all btns should've been removed
+        tables[chatId].append(user)    
+    if len(players) < 4:
         text = "Waiting for players to join ...\nJoined players:\n"
         text += '\n'.join([player.first_name for player in players])
-        if len(players) < 4:
-            markup = get_markup()
-        else:   # no join btn when there are 4 players
-            markup = get_markup(join=False)
-        query.edit_message_text(text=text, reply_markup=markup)
+        query.edit_message_text(text=text, reply_markup=get_markup())
+    else:
+        phases[chatId] = 2
+        text = "Joined players:\n"
+        text += '\n'.join([player.first_name for player in players])
+        text += '\nGame has begun! Check your PMs to see your hands.'
+        query.edit_message_text(text=text)
+        # TODO handle game begun
 
 def button(update, context):
     '''Pass the query to respective handlers.'''
@@ -84,20 +90,23 @@ def button(update, context):
 
 def stop(update, context):
     '''Stop the game in progress.'''
-    global gamePhase, joinMessage
-    gamePhase = 0
-    if joinMessage is not None:
+    chatId = update.effective_chat.id
+    if chatId not in phases or phases[chatId] == 0:
+        stopText = 'No game started!'
+    elif phases[chatId] == 1:   # remove callback btns
         joinText = "Waiting for players to join ...\nJoined players:\n"
         joinText += '\n'.join([player.first_name for player in players])
         joinText += '\n(Game stopped)'
-        joinMessage.edit_text(joinText)
-        joinMessage = None
+        joinMessages[chatId].edit_text(joinText)
+        joinMessages[chatId] = None
         stopText = 'Game stopped.'
         players.clear()
     else:
-        stopText = 'No game started!'
+        # TODO settle hands, tables, etc.
+        stopText = 'Game stopped.'
+        pass
     context.bot.send_message(
-        chat_id=update.effective_chat.id, 
+        chat_id=chatId, 
         text=stopText
     )
 
