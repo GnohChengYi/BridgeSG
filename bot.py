@@ -60,14 +60,15 @@ def join(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
-    if user in tables[chatId]:
+    players = tables[chatId]
+    if user in players:
         context.bot.send_message(
             chat_id=chatId,
             text = '{}, you already joined the game!'.format(user.first_name)
         )
     else:   # should be <4 players otw all btns should've been removed
-        tables[chatId].append(user)    
-    if len(tables[chatId]) < 4:
+        players.append(user)
+    if len(players) < 4:
         text = "Waiting for players to join ...\nJoined players:\n"
         text += '\n'.join([player.first_name for player in players])
         query.edit_message_text(text=text, reply_markup=get_markup())
@@ -92,6 +93,7 @@ def button(update, context):
 def stop(update, context):
     '''Stop the game in progress.'''
     chatId = update.effective_chat.id
+    players = tables[chatId]
     if chatId not in phases or phases[chatId] == 0:
         stopText = 'No game started!'
     elif phases[chatId] == 1:   # remove callback btns
