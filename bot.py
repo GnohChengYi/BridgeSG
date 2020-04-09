@@ -67,7 +67,7 @@ def join(update, context):
         )
     else:   # should be <4 players otw all btns should've been removed
         tables[chatId].append(user)    
-    if len(players) < 4:
+    if len(tables[chatId]) < 4:
         text = "Waiting for players to join ...\nJoined players:\n"
         text += '\n'.join([player.first_name for player in players])
         query.edit_message_text(text=text, reply_markup=get_markup())
