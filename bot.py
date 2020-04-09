@@ -23,6 +23,18 @@ tables = {} # TODO tables[chatId][user(?)] = hand ...
 joinMessages = {}   # messages waiting for players to join
 
 
+class Player:
+    '''Models the player of a bridge game'''
+    
+    def __init__(self, id, first_name):
+        # User id is positive int, AI id is negative int
+        self.id = id
+        print(first_name, id)
+        self.first_name = first_name
+        self.hand = []
+        self.partner = None
+
+
 # handlers and other helper functions
 def get_markup(join=True, quit=True, addBot=True, delBot=True):
     '''Get a keyboard with the given buttons.'''
@@ -32,9 +44,9 @@ def get_markup(join=True, quit=True, addBot=True, delBot=True):
     if quit:
         firstRow.append(InlineKeyboardButton("Quit...", callback_data='2'))
     if addBot:
-        secondRow.append(InlineKeyboardButton("Add bot", callback_data='3'))
+        secondRow.append(InlineKeyboardButton("Insert AI", callback_data='3'))
     if delBot:
-        secondRow.append(InlineKeyboardButton("Delete bot", callback_data='4'))
+        secondRow.append(InlineKeyboardButton("Delete AI", callback_data='4'))
     return InlineKeyboardMarkup([firstRow, secondRow])
 
 def start(update, context):
@@ -47,6 +59,7 @@ def start(update, context):
         )
     elif phase == 0:
         phases[chatId] = 1
+        # initialises tables[chatId]
         tables[chatId] = []
         joinMessages[chatId] = context.bot.send_message(
             chat_id=chatId,
@@ -61,13 +74,13 @@ def join(update, context):
     query = update.callback_query
     user = query.from_user
     players = tables[chatId]
-    if user in players:
+    if user.id in [player.id for player in players]:
         context.bot.send_message(
             chat_id=chatId,
             text = '{}, you already joined the game!'.format(user.first_name)
         )
     else:   # should be <4 players otw all btns should've been removed
-        players.append(user)
+        players.append(Player(user.id, user.first_name))
         if len(players) < 4:
             text = "Waiting for players to join ...\nJoined players:\n"
             text += '\n'.join([player.first_name for player in players])
@@ -80,11 +93,32 @@ def join(update, context):
             query.edit_message_text(text=text)
             # TODO handle game begun
 
+def quit(update, context):
+    chatId = update.effective_chat.id
+    query = update.callback_query
+    user = query.from_user
+    players = tables[chatId]
+    if user.id not in [player.id for player in players]:
+        context.bot.send_message(
+            chat_id=chatId,
+            text = '{}, you haven\'t joined the game!'.format(user.first_name)
+        )
+    else:
+        for player in players:
+            if player.id == user.id:
+                players.remove(player)
+                break
+        text = "Waiting for players to join ...\nJoined players:\n"
+        text += '\n'.join([player.first_name for player in players])
+        query.edit_message_text(text=text, reply_markup=get_markup())
+
 def button(update, context):
     '''Pass the query to respective handlers.'''
     data = update.callback_query.data
     if data == '1':
         join(update, context)
+    elif data == '2':
+        quit(update, context)
     # CallbackQueries need to be answered, 
     # even if no notification to the user is needed
     # Some clients may have trouble otherwise.
@@ -93,10 +127,10 @@ def button(update, context):
 def stop(update, context):
     '''Stop the game in progress.'''
     chatId = update.effective_chat.id
-    players = tables[chatId]
+    players = tables[chatId] if chatId in tables else []
     if chatId not in phases or phases[chatId] == 0:
         stopText = 'No game started!'
-    elif phases[chatId] == 1:   # remove callback btns
+    elif phases[chatId] == 1:   # phase of players joining, remove callback btns
         joinText = "Waiting for players to join ...\nJoined players:\n"
         joinText += '\n'.join([player.first_name for player in players])
         joinText += '\n(Game stopped)'
@@ -106,7 +140,7 @@ def stop(update, context):
         players.clear()
         phases[chatId] = 0
         del joinMessages[chatId]
-    else:
+    else:   # further phases
         # TODO settle hands, tables, etc.
         stopText = 'Game stopped.'
         pass
