@@ -68,17 +68,17 @@ def join(update, context):
         )
     else:   # should be <4 players otw all btns should've been removed
         players.append(user)
-    if len(players) < 4:
-        text = "Waiting for players to join ...\nJoined players:\n"
-        text += '\n'.join([player.first_name for player in players])
-        query.edit_message_text(text=text, reply_markup=get_markup())
-    else:
-        phases[chatId] = 2
-        text = "Joined players:\n"
-        text += '\n'.join([player.first_name for player in players])
-        text += '\nGame has begun! Check your PMs to see your hands.'
-        query.edit_message_text(text=text)
-        # TODO handle game begun
+        if len(players) < 4:
+            text = "Waiting for players to join ...\nJoined players:\n"
+            text += '\n'.join([player.first_name for player in players])
+            query.edit_message_text(text=text, reply_markup=get_markup())
+        else:
+            phases[chatId] = 2
+            text = "Joined players:\n"
+            text += '\n'.join([player.first_name for player in players])
+            text += '\nGame has begun! Check your PMs to see your hands.'
+            query.edit_message_text(text=text)
+            # TODO handle game begun
 
 def button(update, context):
     '''Pass the query to respective handlers.'''
@@ -104,6 +104,8 @@ def stop(update, context):
         joinMessages[chatId] = None
         stopText = 'Game stopped.'
         players.clear()
+        phases[chatId] = 0
+        del joinMessages[chatId]
     else:
         # TODO settle hands, tables, etc.
         stopText = 'Game stopped.'
