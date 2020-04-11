@@ -86,7 +86,7 @@ def quit(update, context):
         )
     else:
         text = "Waiting for players to join ...\nJoined players:\n"
-        text += '\n'.join([player.first_name for player in game.players])
+        text += '\n'.join([player.name for player in game.players])
         query.edit_message_text(text=text, reply_markup=get_markup())
 
 def button(update, context):
@@ -114,7 +114,7 @@ def stop(update, context):
     game = games[chatId]
     if not game.started():   # phase of players joining, remove callback btns
         joinText = "Waiting for players to join ...\nJoined players:\n"
-        joinText += '\n'.join([player.first_name for player in game.players])
+        joinText += '\n'.join([player.name for player in game.players])
         joinText += '\n(Game stopped)'
         joinMessages[chatId].edit_text(joinText)
     context.bot.send_message(
