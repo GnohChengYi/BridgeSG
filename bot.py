@@ -6,7 +6,7 @@ import logging
 from bridge import Game
 
 # pass token with os config vars for security
-#token = os.environ['TELEGRAM_TOKEN']
+token = os.environ['TELEGRAM_TOKEN']
 
 # use_context=True for backward compatibility
 updater = Updater(token=token, use_context=True)
