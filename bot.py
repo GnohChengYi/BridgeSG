@@ -3,9 +3,10 @@ from telegram.ext import CommandHandler, CallbackQueryHandler, Filters, \
     MessageHandler, Updater
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
+from bridge import Game
 
 # pass token with os config vars for security
-token = os.environ['TELEGRAM_TOKEN']
+#token = os.environ['TELEGRAM_TOKEN']
 
 # use_context=True for backward compatibility
 updater = Updater(token=token, use_context=True)
@@ -18,99 +19,74 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # game data
-# data[chatId] = data for that chat
-phases = {} # TODO check gamePhase: 0=none, 1=join, 2=bid, 3=play
-tables = {} # TODO tables[chatId][user(?)] = hand ...
+games = {} # TODO {chat_id:Game}, chat_id in games = game created, vice versa
 joinMessages = {}   # messages waiting for players to join
 
 
-class Player:
-    '''Models the player of a bridge game'''
-    
-    def __init__(self, id, first_name):
-        # User id is positive int, AI id is negative int
-        self.id = id
-        print(first_name, id)
-        self.first_name = first_name
-        self.hand = []
-        self.partner = None
-
-
 # handlers and other helper functions
-def get_markup(join=True, quit=True, addBot=True, delBot=True):
-    '''Get a keyboard with the given buttons.'''
+def get_markup():
+    '''Get the keyboard markup.'''
     firstRow, secondRow = [], []
-    if join:
-        firstRow.append(InlineKeyboardButton("Join!", callback_data='1'))
-    if quit:
-        firstRow.append(InlineKeyboardButton("Quit...", callback_data='2'))
-    if addBot:
-        secondRow.append(InlineKeyboardButton("Insert AI", callback_data='3'))
-    if delBot:
-        secondRow.append(InlineKeyboardButton("Delete AI", callback_data='4'))
+    firstRow.append(InlineKeyboardButton("Join!", callback_data='1'))
+    firstRow.append(InlineKeyboardButton("Quit...", callback_data='2'))
+    secondRow.append(InlineKeyboardButton("Insert AI", callback_data='3'))
+    secondRow.append(InlineKeyboardButton("Delete AI", callback_data='4'))
     return InlineKeyboardMarkup([firstRow, secondRow])
 
 def start(update, context):
+    # start in telegram actually CREATES a new Game, not start an existing Game
     chatId = update.effective_chat.id
-    phase = phases[chatId] if chatId in phases else 0
-    if phase > 0:
+    if chatId in games:
         context.bot.send_message(
             chat_id=chatId, 
             text="A game has already started!"
         )
-    elif phase == 0:
-        phases[chatId] = 1
-        # initialises tables[chatId]
-        tables[chatId] = []
+    else:
+        games[chatId] = Game()
         joinMessages[chatId] = context.bot.send_message(
             chat_id=chatId,
             text="Waiting for players to join ...\nJoined players:",
             reply_markup=get_markup()
         )
-    else:
-        raise Exception('gamePhase  !number  or  <0')
 
 def join(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
-    players = tables[chatId]
-    if user.id in [player.id for player in players]:
+    game = games[chatId]
+    joinSuccess = game.addPlayer(user.id, user.first_name)
+    if not joinSuccess:
         context.bot.send_message(
             chat_id=chatId,
             text = '{}, you already joined the game!'.format(user.first_name)
         )
     else:   # should be <4 players otw all btns should've been removed
-        players.append(Player(user.id, user.first_name))
-        if len(players) < 4:
+        if not game.full():
             text = "Waiting for players to join ...\nJoined players:\n"
-            text += '\n'.join([player.first_name for player in players])
+            text += '\n'.join([player.name for player in game.players])
             query.edit_message_text(text=text, reply_markup=get_markup())
         else:
-            phases[chatId] = 2
+            game.start()
+            # TODO handle game begun
             text = "Joined players:\n"
-            text += '\n'.join([player.first_name for player in players])
+            text += '\n'.join([player.name for player in game.players])
             text += '\nGame has begun! Check your PMs to see your hands.'
             query.edit_message_text(text=text)
-            # TODO handle game begun
 
 def quit(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
-    players = tables[chatId]
-    if user.id not in [player.id for player in players]:
+    game = games[chatId]
+    quitSuccess = game.delPlayer(user.id, user.first_name)
+    if not quitSuccess:
         context.bot.send_message(
             chat_id=chatId,
             text = '{}, you haven\'t joined the game!'.format(user.first_name)
         )
     else:
-        for player in players:
-            if player.id == user.id:
-                players.remove(player)
-                break
         text = "Waiting for players to join ...\nJoined players:\n"
-        text += '\n'.join([player.first_name for player in players])
+        text += '\n'.join([player.first_name for player in game.players])
         query.edit_message_text(text=text, reply_markup=get_markup())
 
 def button(update, context):
@@ -128,27 +104,25 @@ def button(update, context):
 def stop(update, context):
     '''Stop the game in progress.'''
     chatId = update.effective_chat.id
-    players = tables[chatId] if chatId in tables else []
-    if chatId not in phases or phases[chatId] == 0:
-        stopText = 'No game started!'
-    elif phases[chatId] == 1:   # phase of players joining, remove callback btns
+    if chatId not in games:
+        context.bot.send_message(
+            chat_id=chatId, 
+            text='No game started!'
+        )
+        return
+    # TODO ask user for confirmation to stop game
+    game = games[chatId]
+    if not game.started():   # phase of players joining, remove callback btns
         joinText = "Waiting for players to join ...\nJoined players:\n"
-        joinText += '\n'.join([player.first_name for player in players])
+        joinText += '\n'.join([player.first_name for player in game.players])
         joinText += '\n(Game stopped)'
         joinMessages[chatId].edit_text(joinText)
-        joinMessages[chatId] = None
-        stopText = 'Game stopped.'
-        players.clear()
-        phases[chatId] = 0
-        del joinMessages[chatId]
-    else:   # further phases
-        # TODO settle hands, tables, etc.
-        stopText = 'Game stopped.'
-        pass
     context.bot.send_message(
         chat_id=chatId, 
-        text=stopText
+        text='Game stopped.'
     )
+    del games[chatId]
+    del joinMessages[chatId]
 
 def error(update, context):
     '''Log Errors caused by Updates.'''
