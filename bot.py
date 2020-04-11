@@ -1,10 +1,11 @@
+import os
 from telegram.ext import CommandHandler, CallbackQueryHandler, Filters, \
     MessageHandler, Updater
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 
-# TODO remove token, use os.env...(follow heroku telegram bot tutorial), otw other ppl can control my bot
-token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
+# pass token with os config vars for security
+token = os.environ[TELEGRAM_TOKEN]
 
 # use_context=True for backward compatibility
 updater = Updater(token=token, use_context=True)
