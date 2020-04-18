@@ -96,9 +96,17 @@ def insertAI(update, context):
     game = games[chatId]
     # should always work because all btns removed aft full
     game.addAI()
-    text = "Waiting for players to join ...\nJoined players:\n"
-    text += '\n'.join([player['name'] for player in game.players])
-    query.edit_message_text(text=text, reply_markup=get_markup())
+    if not game.full():
+        text = "Waiting for players to join ...\nJoined players:\n"
+        text += '\n'.join([player['name'] for player in game.players])
+        query.edit_message_text(text=text, reply_markup=get_markup())
+    else:
+        game.start()
+        # TODO handle game begun
+        text = "Joined players:\n"
+        text += '\n'.join([player['name'] for player in game.players])
+        text += '\nGame has begun! Check your PMs to see your hands.'
+        query.edit_message_text(text=text)
 
 def deleteAI(update, context):
     chatId = update.effective_chat.id
