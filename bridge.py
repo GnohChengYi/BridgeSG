@@ -9,7 +9,7 @@ class Game:
         id>0: human;  id<0: AI
     bid (str): current highest bid, in '2S' (2 spades) format
     phase: 0=waiting, 1=bidding, 2=playing
-    numAI: number of AIs in the game, for naming purposes'''
+    AIindices: available indices for AI, use the first element as current index'''
     
     
     def __init__(self):
@@ -17,7 +17,7 @@ class Game:
         self.bid = ''
         # TODO change phase specifications in comments as necessary
         self.phase = 0
-        self.numAI = 0
+        self.AIindices = [1, 2, 3, 4]
     
     def addHuman(self, id, name):
         '''Returns True if successfully added human player, False otw.'''
@@ -40,8 +40,10 @@ class Game:
     
     def addAI(self):
         # should be less than 4 players, otw all btns removed -> won't reach here
-        self.numAI += 1
-        self.players.append({'id':-self.numAI, 'name':'AI '+str(self.numAI)})
+        self.players.append(
+            {'id':-self.AIindices[0], 'name':'AI '+str(self.AIindices[0])}
+        )
+        self.AIindices = self.AIindices[1:] + self.AIindices[:1]
 
     def delAI(self):
         '''Returns True if successfully deleted AI, False otw.'''
@@ -49,7 +51,6 @@ class Game:
         for player in self.players:
             if player['id'] < 0:
                 self.players.remove(player)
-                self.numAI -= 1
                 return True
         return False
     
