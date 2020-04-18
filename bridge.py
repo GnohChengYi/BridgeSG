@@ -41,7 +41,7 @@ class Game:
     def addAI(self):
         # should be less than 4 players, otw all btns removed -> won't reach here
         self.numAI += 1
-        self.players.append({'id':-numAI, 'name':'AI '+str(numAI)})
+        self.players.append({'id':-self.numAI, 'name':'AI '+str(numAI)})
 
     def delAI(self):
         '''Returns True if successfully deleted AI, False otw.'''
@@ -49,6 +49,7 @@ class Game:
         for player in self.players:
             if player['id'] < 0:
                 self.players.remove(player)
+                self.numAI -= 1
                 return True
         return False
     
