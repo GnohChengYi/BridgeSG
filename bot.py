@@ -63,7 +63,7 @@ def join(update, context):
     else:   # should be <4 players otw all btns should've been removed
         if not game.full():
             text = "Waiting for players to join ...\nJoined players:\n"
-            text += '\n'.join([player.name for player in game.players])
+            text += '\n'.join([player['name'] for player in game.players])
             query.edit_message_text(text=text, reply_markup=get_markup())
         else:
             game.start()
