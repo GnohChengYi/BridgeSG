@@ -54,7 +54,7 @@ def join(update, context):
     query = update.callback_query
     user = query.from_user
     game = games[chatId]
-    joinSuccess = game.addPlayer(user.id, user.first_name)
+    joinSuccess = game.addHuman(user.id, user.first_name)
     if not joinSuccess:
         context.bot.send_message(
             chat_id=chatId,
@@ -69,7 +69,7 @@ def join(update, context):
             game.start()
             # TODO handle game begun
             text = "Joined players:\n"
-            text += '\n'.join([player.name for player in game.players])
+            text += '\n'.join([player['name'] for player in game.players])
             text += '\nGame has begun! Check your PMs to see your hands.'
             query.edit_message_text(text=text)
 
@@ -78,7 +78,7 @@ def quit(update, context):
     query = update.callback_query
     user = query.from_user
     game = games[chatId]
-    quitSuccess = game.delPlayer(user.id, user.first_name)
+    quitSuccess = game.delHuman(user.id, user.first_name)
     if not quitSuccess:
         context.bot.send_message(
             chat_id=chatId,
@@ -86,7 +86,32 @@ def quit(update, context):
         )
     else:
         text = "Waiting for players to join ...\nJoined players:\n"
-        text += '\n'.join([player.name for player in game.players])
+        text += '\n'.join([player['name'] for player in game.players])
+        query.edit_message_text(text=text, reply_markup=get_markup())
+
+def insertAI(update, context):
+    chatId = update.effective_chat.id
+    query = update.callback_query
+    user = query.from_user
+    game = games[chatId]
+    # should always work because all btns removed aft full
+    game.addAI()
+    text = "Waiting for players to join ...\nJoined players:\n"
+    text += '\n'.join([player['name'] for player in game.players])
+    query.edit_message_text(text=text, reply_markup=get_markup())
+
+def deleteAI(update, context):
+    chatId = update.effective_chat.id
+    query = update.callback_query
+    user = query.from_user
+    game = games[chatId]
+    # should always work because all btns removed aft full
+    delSuccess = game.delAI()
+    if not delSuccess:
+        context.bot.send_message(chat_id=chatId, text = 'No AI in the game!')
+    else:
+        text = "Waiting for players to join ...\nJoined players:\n"
+        text += '\n'.join([player['name'] for player in game.players])
         query.edit_message_text(text=text, reply_markup=get_markup())
 
 def button(update, context):
@@ -96,6 +121,10 @@ def button(update, context):
         join(update, context)
     elif data == '2':
         quit(update, context)
+    elif data == '3':
+        insertAI(update, context)
+    elif data == '4':
+        deleteAI(update, context)
     # CallbackQueries need to be answered, 
     # even if no notification to the user is needed
     # Some clients may have trouble otherwise.
@@ -114,7 +143,7 @@ def stop(update, context):
     game = games[chatId]
     if not game.started():   # phase of players joining, remove callback btns
         joinText = "Waiting for players to join ...\nJoined players:\n"
-        joinText += '\n'.join([player.name for player in game.players])
+        joinText += '\n'.join([player['name'] for player in game.players])
         joinText += '\n(Game stopped)'
         joinMessages[chatId].edit_text(joinText)
     context.bot.send_message(
