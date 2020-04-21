@@ -1,12 +1,13 @@
 import os
 from telegram.ext import CommandHandler, CallbackQueryHandler, Filters, \
     MessageHandler, Updater
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, TelegramError
 import logging
 from bridge import Game
 
 # pass token with os config vars for security
-token = os.environ['TELEGRAM_TOKEN']
+#token = os.environ['TELEGRAM_TOKEN']
+token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
 
 # use_context=True for backward compatibility
 updater = Updater(token=token, use_context=True)
@@ -24,7 +25,7 @@ joinMessages = {}   # messages waiting for players to join
 
 
 # handlers and other helper functions
-def get_markup():
+def get_markup(context):
     '''Get the keyboard markup.'''
     firstRow, secondRow = [], []
     firstRow.append(InlineKeyboardButton("Join!", callback_data='1'))
@@ -36,6 +37,10 @@ def get_markup():
 def start(update, context):
     # start in telegram actually CREATES a new Game, not start an existing Game
     chatId = update.effective_chat.id
+    # private chat for initialising conversation only, cannot create new Game
+    if update.effective_chat.type=='private':
+        context.bot.send_message(chat_id=chatId, text='Add me to a group to play!')
+        return
     if chatId in games:
         context.bot.send_message(
             chat_id=chatId, 
@@ -46,32 +51,59 @@ def start(update, context):
         joinMessages[chatId] = context.bot.send_message(
             chat_id=chatId,
             text="Waiting for players to join ...\nJoined players:",
-            reply_markup=get_markup()
+            reply_markup=get_markup(context)
         )
+
+def startGame(update, context):
+    '''Handle bidding and playing phases.'''
+    chatId = update.effective_chat.id
+    query = update.callback_query
+    game = games[chatId]
+    game.start()
+    text = "Joined players:\n"
+    text += '\n'.join([player['name'] for player in game.players])
+    text += '\nGame has begun! Check your PMs to see your hands.'
+    query.edit_message_text(text=text)
+    # PM human players
+    for player in game.players:
+        if player['id'] > 0:    # human player
+            context.bot.send_message(
+                chat_id=player['id'],
+                text=str(player['hand'])
+            )
+    # TODO complete the function
+    
 
 def join(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
     game = games[chatId]
+    if game.full():
+        context.bot.send_message(chat_id=chatId, text='Table already full!')
+        return
     joinSuccess = game.addHuman(user.id, user.first_name)
     if not joinSuccess:
         context.bot.send_message(
             chat_id=chatId,
-            text = '{}, you already joined the game!'.format(user.first_name)
+            text='{}, you already joined the game!'.format(user.first_name)
         )
-    else:   # should be <4 players otw all btns should've been removed
-        if not game.full():
-            text = "Waiting for players to join ...\nJoined players:\n"
-            text += '\n'.join([player['name'] for player in game.players])
-            query.edit_message_text(text=text, reply_markup=get_markup())
-        else:
-            game.start()
-            # TODO handle game begun
-            text = "Joined players:\n"
-            text += '\n'.join([player['name'] for player in game.players])
-            text += '\nGame has begun! Check your PMs to see your hands.'
-            query.edit_message_text(text=text)
+        return
+    # joined, should be <=4 players otw all btns should've been removed
+    try:
+        context.bot.send_message(chat_id=user.id, text='Joined game!')
+    except(TelegramError):
+        text = '{}, please initiate a conversation with me @MYSGBridgeBot!'
+        context.bot.send_message(chat_id=chatId, text=text.format(user.first_name))
+        # undo the join
+        game.delHuman(user.id, user.first_name)
+        return
+    if not game.full():
+        text = "Waiting for players to join ...\nJoined players:\n"
+        text += '\n'.join([player['name'] for player in game.players])
+        query.edit_message_text(text=text, reply_markup=get_markup(context))
+    else:
+        startGame(update, context)
 
 def quit(update, context):
     chatId = update.effective_chat.id
@@ -87,40 +119,36 @@ def quit(update, context):
     else:
         text = "Waiting for players to join ...\nJoined players:\n"
         text += '\n'.join([player['name'] for player in game.players])
-        query.edit_message_text(text=text, reply_markup=get_markup())
+        query.edit_message_text(text=text, reply_markup=get_markup(context))
 
 def insertAI(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
     game = games[chatId]
-    # should always work because all btns removed aft full
+    if game.full():
+        context.bot.send_message(chat_id=chatId, text='Table already full!')
+        return
     game.addAI()
     if not game.full():
         text = "Waiting for players to join ...\nJoined players:\n"
         text += '\n'.join([player['name'] for player in game.players])
-        query.edit_message_text(text=text, reply_markup=get_markup())
+        query.edit_message_text(text=text, reply_markup=get_markup(context))
     else:
-        game.start()
-        # TODO handle game begun
-        text = "Joined players:\n"
-        text += '\n'.join([player['name'] for player in game.players])
-        text += '\nGame has begun! Check your PMs to see your hands.'
-        query.edit_message_text(text=text)
+        startGame(update, context)
 
 def deleteAI(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
     game = games[chatId]
-    # should always work because all btns removed aft full
     delSuccess = game.delAI()
     if not delSuccess:
         context.bot.send_message(chat_id=chatId, text = 'No AI in the game!')
     else:
         text = "Waiting for players to join ...\nJoined players:\n"
         text += '\n'.join([player['name'] for player in game.players])
-        query.edit_message_text(text=text, reply_markup=get_markup())
+        query.edit_message_text(text=text, reply_markup=get_markup(context))
 
 def button(update, context):
     '''Pass the query to respective handlers.'''
