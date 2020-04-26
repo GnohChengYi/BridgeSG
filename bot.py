@@ -1,9 +1,12 @@
 import os
 from telegram.ext import CommandHandler, CallbackQueryHandler, Filters, \
-    MessageHandler, Updater
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, TelegramError
+    InlineQueryHandler, MessageHandler, Updater
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, \
+    InlineQueryResultArticle, InputTextMessageContent, ParseMode, TelegramError
 import logging
 from bridge import Game
+from telegram.utils.helpers import escape_markdown
+from uuid import uuid4
 
 # pass token with os config vars for security
 #token = os.environ['TELEGRAM_TOKEN']
@@ -12,15 +15,14 @@ token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
 # use_context=True for backward compatibility
 updater = Updater(token=token, use_context=True)
 
-# set up logging to know when and why things don't work as expected
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-    )
+# Enable logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 # game data
-games = {} # TODO {chat_id:Game}, chat_id in games = game created, vice versa
+games = {}  # {chat_id:Game}, chat_id in games = game created, vice versa
 joinMessages = {}   # messages waiting for players to join
 
 
@@ -54,25 +56,45 @@ def start(update, context):
             reply_markup=get_markup(context)
         )
 
-def startGame(update, context):
+def request_bid(player, update, context):
+    '''Requests bid from player. Also handles bid if player is AI.'''
+    chatId = update.effective_chat.id
+    query = update.callback_query
+    game = games[chatId]
+    context.bot.send_message(
+        chat_id=chatId, 
+        text='@{}, your turn to bid!'.format(player['name'])
+    )
+    # handles bid for AI
+    if player['id'] <= 0:
+        bid, nextPlayer = game.bid(player)
+        context.bot.send_message(
+            chat_id=chatId, 
+            text='@{}: {}'.format(player['name'], bid)
+        )
+        # TODO check if got recursive or stack error
+        request_bid(nextPlayer, update, context)
+    # handles bid for human
+    # TODO change keyboard of bidding player(?)
+
+def start_game(update, context):
     '''Handle bidding and playing phases.'''
     chatId = update.effective_chat.id
     query = update.callback_query
     game = games[chatId]
-    game.start()
+    firstPlayer = game.start()
     text = "Joined players:\n"
     text += '\n'.join([player['name'] for player in game.players])
     text += '\nGame has begun! Check your PMs to see your hands.'
     query.edit_message_text(text=text)
     # PM human players
     for player in game.players:
-        if player['id'] > 0:    # human player
+        if player['id'] > 0:    # human player's id > 0
             context.bot.send_message(
                 chat_id=player['id'],
                 text=str(player['hand'])
             )
-    # TODO complete the function
-    
+    request_bid(firstPlayer, update, context)
 
 def join(update, context):
     chatId = update.effective_chat.id
@@ -82,7 +104,7 @@ def join(update, context):
     if game.full():
         context.bot.send_message(chat_id=chatId, text='Table already full!')
         return
-    joinSuccess = game.addHuman(user.id, user.first_name)
+    joinSuccess = game.add_human(user.id, user.first_name)
     if not joinSuccess:
         context.bot.send_message(
             chat_id=chatId,
@@ -96,21 +118,21 @@ def join(update, context):
         text = '{}, please initiate a conversation with me @MYSGBridgeBot!'
         context.bot.send_message(chat_id=chatId, text=text.format(user.first_name))
         # undo the join
-        game.delHuman(user.id, user.first_name)
+        game.del_Human(user.id, user.first_name)
         return
     if not game.full():
         text = "Waiting for players to join ...\nJoined players:\n"
         text += '\n'.join([player['name'] for player in game.players])
         query.edit_message_text(text=text, reply_markup=get_markup(context))
     else:
-        startGame(update, context)
+        start_game(update, context)
 
 def quit(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
     game = games[chatId]
-    quitSuccess = game.delHuman(user.id, user.first_name)
+    quitSuccess = game.del_human(user.id, user.first_name)
     if not quitSuccess:
         context.bot.send_message(
             chat_id=chatId,
@@ -121,7 +143,7 @@ def quit(update, context):
         text += '\n'.join([player['name'] for player in game.players])
         query.edit_message_text(text=text, reply_markup=get_markup(context))
 
-def insertAI(update, context):
+def insert_AI(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
@@ -129,20 +151,20 @@ def insertAI(update, context):
     if game.full():
         context.bot.send_message(chat_id=chatId, text='Table already full!')
         return
-    game.addAI()
+    game.add_AI()
     if not game.full():
         text = "Waiting for players to join ...\nJoined players:\n"
         text += '\n'.join([player['name'] for player in game.players])
         query.edit_message_text(text=text, reply_markup=get_markup(context))
     else:
-        startGame(update, context)
+        start_game(update, context)
 
-def deleteAI(update, context):
+def delete_AI(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query
     user = query.from_user
     game = games[chatId]
-    delSuccess = game.delAI()
+    delSuccess = game.del_AI()
     if not delSuccess:
         context.bot.send_message(chat_id=chatId, text = 'No AI in the game!')
     else:
@@ -158,9 +180,9 @@ def button(update, context):
     elif data == '2':
         quit(update, context)
     elif data == '3':
-        insertAI(update, context)
+        insert_AI(update, context)
     elif data == '4':
-        deleteAI(update, context)
+        delete_AI(update, context)
     # CallbackQueries need to be answered, 
     # even if no notification to the user is needed
     # Some clients may have trouble otherwise.
@@ -188,17 +210,44 @@ def stop(update, context):
     )
     del games[chatId]
     del joinMessages[chatId]
-
-def error(update, context):
-    '''Log Errors caused by Updates.'''
-    logger.warning('Update "%s" caused error "%s"', update, context.error)
-
-def unknown(update, context):
-    '''Reply to unrecognized commands. MUST be added LAST.'''
+    
+def action(update, context):
+    '''Handle actions (bid/cards).
+    
+    Regex should only pass '@MYSGBridgeBot ...' here.
+    Formats:
+    bid: '1N', '2S', '3H', '4D', '5C', 'PASS'
+    card: 'SA', 'HQ', 'DT', 'C8'
+    case INsensitive
+    '''
+    actionStr = update.message.text.split(' ')[1]
+    if actionStr[0] in '1234567P':  # bid
+        # TODO bid
+        pass
+    elif actionStr[0] in 'SHDC':    # card
+        # TODO play/call partner
+        pass
+    else:
+        text = '''Invalid action! Formats:
+            Bids:
+            '@MYSGBridgeBot 1N' for 1 No trump
+            '@MYSGBridgeBot 3S' for 3 Hearts
+            '@MYSGBridgeBot PASS' for PASS
+            Cards:
+            '@MYSGBridgeBot SA' for Ace of Spades
+            '@MYSGBridgeBot HQ' for Queen of Hearts
+            '@MYSGBridgeBot DT' for Ten of Diamonds
+            '@MYSGBridgeBot C8' for 8 of Clubs
+        '''
     context.bot.send_message(
         chat_id=update.effective_chat.id, 
-        text="Sorry, I didn't understand that command"
+        text=text
     )
+    
+
+def error(update, context):
+    """Log Errors caused by Updates."""
+    logger.warning('Update "%s" caused error "%s"', update, context.error)
 
 
 if __name__ == '__main__':
@@ -206,10 +255,11 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CommandHandler('start', start))
     updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
-    #updater.dispatcher.add_error_handler(error)
-    # unknown handler MUST be added after other handlers
-    updater.dispatcher.add_handler(MessageHandler(Filters.command, unknown))
-
+    updater.dispatcher.add_handler(MessageHandler(
+        Filters.regex(r'^@MYSGBridgeBot\s.'),
+        action
+    ))
+    updater.dispatcher.add_error_handler(error)
     # start the bot
     updater.start_polling()
     # Run the bot until the user presses Ctrl-C or the process receives 
