@@ -1,122 +1,129 @@
 # handles everything in a bridge game
-import random
-
+from uuid import uuid4
+from random import shuffle
 
 class Game:
-    '''Models a bridge game.
+    # {chatId:Game}, store all games
+    games = {}
+    deck = (
+        ('SA','SK','SQ','SJ','ST','S9','S8','S7','S6','S5','S4','S3','S2'),
+        ('HA','HK','HQ','HJ','HT','H9','H8','H7','H6','H5','H4','H3','H2'),
+        ('DA','DK','DQ','DJ','DT','D9','D8','D7','D6','D5','D4','D3','D2'),
+        ('CA','CK','CQ','CJ','CT','C9','C8','C7','C6','C5','C4','C3','C2')
+    )
+    bids = (
+        '1C', '1D', '1H', '1S', '1N', 
+        '2C', '2D', '2H', '2S', '2N', 
+        '3C', '3D', '3H', '3S', '3N', 
+        '4C', '4D', '4H', '4S', '4N', 
+        '5C', '5D', '5H', '5S', '5N', 
+        '6C', '6D', '6H', '6S', '6N', 
+        '7C', '7D', '7H', '7S', '7N'
+    )
+    PASS = 'PASS'
     
-    players: list of Player objects (Player implemented as dict)
-    # TODO to complete
-        player{'id', 'name', 'hand', 'partnerId', ...}
-        id>0: human;  id<0: AI
-    winningBid (str): current highest bid, in '2S' (2 spades) format, or 'PASS'
-    winningPlayer (dict): player who bidded the current highest bid, may be AI
-    phase: 0=waiting, 1=bidding, 2=playing
-    AIindices: available indices for AI, use the first element as current index
-    '''
-    
-    
-    def __init__(self):
+    def __init__(self, id):
+        self.id = id
         self.players = []
-        self.winningBid = ''
-        self.winningPlayer = None
-        # TODO change phase specifications in comments as necessary
-        self.phase = 0
-        self.AIindices = [1, 2, 3, 4]
-    
-    def add_human(self, id, name):
-        '''Returns True if successfully added human player, False otw.'''
-        # check if player already in game
-        for player in self.players:
-            if player['id'] == id:
-                return False
-        # should be less than 4 players, otw all btns removed -> won't reach here
-        self.players.append({'id':id, 'name':name})
-        return True
+        self.phase = 0  # 0:join, 1:bid/call, 2:play
+        self.activePlayer = None
+        self.declarer = None
+        self.bid = Game.PASS   # (''=empty str=PASS), 1N, 2S, 3H, 4D, 5C, etc.
+        self.trump = '' # N, S, H, D, C
+        self.contract = 0   # 7, 8, 9, 10, 11, 12, 13
+        Game.games[id] = self
 
-    def del_human(self, id, name):
-        '''Returns True if successfully deleted human player, False otw.'''
-        # check if player in game
-        for player in self.players:
-            if player['id'] == id:
-                self.players.remove(player)
-                return True
-        return False
-    
-    def add_AI(self):
-        # should be less than 4 players, otw all btns removed -> won't reach here
-        self.players.append(
-            {'id':-self.AIindices[0], 'name':'AI '+str(self.AIindices[0])}
-        )
-        self.AIindices = self.AIindices[1:] + self.AIindices[:1]
-
-    def del_AI(self):
-        '''Returns True if successfully deleted AI, False otw.'''
-        # check if player in game
-        for player in self.players:
-            if player['id'] < 0:
-                self.players.remove(player)
-                return True
-        return False
-    
     def full(self):
-        '''Returns True if full of players (4), False otw.'''
         return len(self.players) >= 4
     
     def started(self):
-        '''Returns True if game started, False otw.'''
-        return self.phase > 0
-
-    def deal_cards():
-        '''Returns (hand1, hand2, hand3, hand4).
-        
-        handN = [card1, card2, card3, ..., ]
-        cardN = 'SA'(SpadeAce)   | 'HQ'(HeartQueen) | 
-                'DT'(DiamondTen) | 'C8' (Club8)
-        '''
-        # hard code so that don't need generate everytime (performance purpose)
-        deck = [
-            'SA','SK','SQ','SJ','ST','S9','S8','S7','S6','S5','S4','S3','S2',
-            'HA','HK','HQ','HJ','HT','H9','H8','H7','H6','H5','H4','H3','H2',
-            'DA','DK','DQ','DJ','DT','D9','D8','D7','D6','D5','D4','D3','D2',
-            'CA','CK','CQ','CJ','CT','C9','C8','C7','C6','C5','C4','C3','C2'
-        ]
-        random.shuffle(deck)
-        return (
-            sorted(deck[:13]), 
-            sorted(deck[13:26]), 
-            sorted(deck[26:39]), 
-            sorted(deck[39:])
-        )
+        return self.phase>0
+    
+    def add_human(self, id, name):
+        if self.full() or id in Player.players:
+            return False
+        player = Player(id, name)
+        self.players.append(player)
+        player.game = self
+        return True
+    
+    def del_human(self, id):
+        if id not in Player.players:    # not in any game
+            return False
+        player = Player.players[id]
+        if player not in self.players:  # not in this game
+            return False
+        self.players.remove(player)
+        del player
+        del Player.players[id]
+        return True
+    
+    def add_AI(self):
+        if self.full():
+            return False
+        id = uuid4()
+        name = 'AI ' + str(id)[:5]
+        player = Player(id, name, isAI=True)
+        self.players.append(player)
+        player.game = self
+        return True
+    
+    def del_AI(self):
+        for player in self.players:
+            if player.isAI:
+                self.players.remove(player)
+                del Player.players[player.id]
+                del player
+                return True
+        return False
     
     def start(self):
-        '''Deals cards. Returns first player to bid.'''
         self.phase = 1
-        # TODO check if works
-        hands = Game.deal_cards()
-        for i in range(4):
-            self.players[i]['hand'] = hands[i]
-        return self.players[0]
+        dealDeck = list(Game.deck)
+        shuffle(dealDeck)
+        self.players[0].hand = dealDeck[:13]
+        self.players[1].hand = dealDeck[13:26]
+        self.players[2].hand = dealDeck[26:39]
+        self.players[3].hand = dealDeck[39:]
+        self.activePlayer = self.players[0]
     
-    def AI_bid(player, winningBid):
-        # TODO complete the function
-        hand = player['hand']
-        return '4N'
+    def stop(self):
+        for player in self.players:
+            del Player.players[player.id]
+            del player
+        del Game.games[self.id]
     
-    def bid(self, player:dict, bid:str=''):
-        '''Handles bid. Returns next player to bid, 
-        or None if bid ended (next player is the same as winningPlayer)
-        Player is mutable (dict). Pass bid='PASS'. AI:bid=''. 
-        '''
-        if player['id']>0 and bid!='':  # human
-            if bid!='PASS':
-                self.winningBid = bid
-                self.winningPlayer = player
-        else:   # AI
-            bid = Game.AI_bid(player, self.winningBid)
-        nextPlayer = self.players[self.players.index(player) + 1]
-        if nextPlayer == self.winningPlayer:
-            return None
-        return bid, nextPlayer
+    def next(self):
+        self.activePlayer = \
+            self.players[(self.players.index(self.activePlayer) + 1) % 4]
+    
+    def valid_bids(self):
+        if self.bid == Game.PASS:
+            return (Game.PASS,) + Game.bids
+        index = Game.bids.index(self.bid)
+        return (Game.PASS,) + Game.bids[index:]
 
-# TODO make available bids
+
+class Player:
+    # {userId:Player}, store all players
+    players = {}
+    
+    def __init__(self, id, name, isAI=False):
+        self.id = id
+        self.name = name
+        self.game = None
+        self.isAI = isAI
+        self.hand = []
+        Player.players[id] = self
+    
+    def make_bid(self, bid=Game.PASS):
+        if self.isAI:
+            # TODO code AI logic
+            self.game.next()
+            return Game.PASS
+        # TODO check validity
+        if bid!='':
+            self.game.declarer = self
+            self.game.bid = bid
+        # TODO only if valid
+        self.game.next()
