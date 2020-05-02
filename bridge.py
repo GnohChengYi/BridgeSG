@@ -122,7 +122,7 @@ class Player:
             self.game.next()
             return Game.PASS
         # TODO check validity
-        if bid!='':
+        if bid!=Game.PASS:
             self.game.declarer = self
             self.game.bid = bid
         # TODO only if valid

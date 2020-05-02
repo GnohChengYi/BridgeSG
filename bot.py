@@ -164,7 +164,7 @@ def start_game(update, context):
     context.bot.send_message(chat_id=chatId, text='Game starts now!')
     game = Game.games[chatId]
     game.start()
-    request_bid(update, context)
+    request_bid(chatId, context)
 
 def translate_bid(bid):
     '''Returns bid in a more readable form.'''
@@ -173,12 +173,17 @@ def translate_bid(bid):
         return 'PASS'
     return bid
 
-def request_bid(update, context):
-    chatId = update.effective_chat.id
+def request_bid(chatId, context):
+    # TODO rm chatId = update.effective_chat.id
     game = Game.games[chatId]
     player = game.activePlayer
     if player is game.declarer:
-        # TODO end bid, call partner
+        context.bot.send_message(
+            chat_id=chatId, 
+            text='[{}](tg://user?id={}), '.format(player.name, player.id)+
+                'you won the bid! Please choose your partner\'s card.',
+            parse_mode=ParseMode.MARKDOWN
+        )
         return
     if player.isAI:
         bid = player.make_bid()
@@ -186,7 +191,8 @@ def request_bid(update, context):
             chat_id=chatId, 
             text='{}:  {}'.format(player.name, translate_bid(bid))
         )
-        request_bid(update, context)
+        # TODO rm request_bid(update, context)
+        request_bid(chatId, context)
         return
     context.bot.send_message(
         chat_id=chatId,
@@ -213,9 +219,17 @@ def inline_action(update, context):
         ))
     context.bot.answer_inline_query(inlineQuery.id, results)
 
-def action():
-    print('action')
-    print('update:', update)
+def action(update, context):
+    # TODO cards
+    result = update.chosen_inline_result
+    bid = result.result_id
+    playerId = result.from_user.id
+    player = Player.players[playerId]
+    player.make_bid(bid)
+    # TODO rm request_bid(update, context)
+    chatId = player.game.id
+    request_bid(chatId, context)
+    
 
 def error(update, context):
     logger.warning('Update "%s" caused error "%s"', update, context.error)
@@ -226,6 +240,8 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
     updater.dispatcher.add_handler(InlineQueryHandler(inline_action))
+    # TODO uncomment the next line for final product
+    #updater.dispatcher.add_error_handler(error)
     # TODO try again for a while, if still cannot then use messagehandler
     updater.dispatcher.add_handler(ChosenInlineResultHandler(action))
     updater.start_polling()
