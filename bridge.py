@@ -1,15 +1,15 @@
 # handles everything in a bridge game
 from uuid import uuid4
-from random import shuffle
+from random import choice, shuffle
 
 class Game:
     # {chatId:Game}, store all games
     games = {}
     deck = (
-        ('SA','SK','SQ','SJ','ST','S9','S8','S7','S6','S5','S4','S3','S2'),
-        ('HA','HK','HQ','HJ','HT','H9','H8','H7','H6','H5','H4','H3','H2'),
-        ('DA','DK','DQ','DJ','DT','D9','D8','D7','D6','D5','D4','D3','D2'),
-        ('CA','CK','CQ','CJ','CT','C9','C8','C7','C6','C5','C4','C3','C2')
+        'SA','SK','SQ','SJ','ST','S9','S8','S7','S6','S5','S4','S3','S2',
+        'HA','HK','HQ','HJ','HT','H9','H8','H7','H6','H5','H4','H3','H2',
+        'DA','DK','DQ','DJ','DT','D9','D8','D7','D6','D5','D4','D3','D2',
+        'CA','CK','CQ','CJ','CT','C9','C8','C7','C6','C5','C4','C3','C2'
     )
     bids = (
         '1C', '1D', '1H', '1S', '1N', 
@@ -101,7 +101,7 @@ class Game:
         if self.bid == Game.PASS:
             return (Game.PASS,) + Game.bids
         index = Game.bids.index(self.bid)
-        return (Game.PASS,) + Game.bids[index:]
+        return (Game.PASS,) + Game.bids[index+1:]
 
 
 class Player:
@@ -119,11 +119,10 @@ class Player:
     def make_bid(self, bid=Game.PASS):
         if self.isAI:
             # TODO code AI logic
-            self.game.next()
-            return Game.PASS
-        # TODO check validity
+            validBids = self.game.valid_bids()
+            bid = choice(validBids)
         if bid!=Game.PASS:
             self.game.declarer = self
             self.game.bid = bid
-        # TODO only if valid
         self.game.next()
+        return bid

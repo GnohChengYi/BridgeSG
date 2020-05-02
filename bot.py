@@ -164,6 +164,12 @@ def start_game(update, context):
     context.bot.send_message(chat_id=chatId, text='Game starts now!')
     game = Game.games[chatId]
     game.start()
+    for player in game.players:
+        if not player.isAI:
+            context.bot.send_message(
+                chat_id=player.id, 
+                text='Your Hand:\n'+str(player.hand)
+            )
     request_bid(chatId, context)
 
 def translate_bid(bid):
@@ -174,7 +180,6 @@ def translate_bid(bid):
     return bid
 
 def request_bid(chatId, context):
-    # TODO rm chatId = update.effective_chat.id
     game = Game.games[chatId]
     player = game.activePlayer
     if player is game.declarer:
@@ -191,7 +196,6 @@ def request_bid(chatId, context):
             chat_id=chatId, 
             text='{}:  {}'.format(player.name, translate_bid(bid))
         )
-        # TODO rm request_bid(update, context)
         request_bid(chatId, context)
         return
     context.bot.send_message(
@@ -205,6 +209,8 @@ def inline_action(update, context):
     # TODO card
     inlineQuery = update.inline_query
     query = inlineQuery.query
+    if not query:
+        return
     user = inlineQuery.from_user
     if user.id not in Player.players:
         return
@@ -226,7 +232,6 @@ def action(update, context):
     playerId = result.from_user.id
     player = Player.players[playerId]
     player.make_bid(bid)
-    # TODO rm request_bid(update, context)
     chatId = player.game.id
     request_bid(chatId, context)
     
@@ -240,8 +245,8 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
     updater.dispatcher.add_handler(InlineQueryHandler(inline_action))
-    # TODO uncomment the next line for final product
-    #updater.dispatcher.add_error_handler(error)
+    # TODO uncomment add_error_handler for final product
+    updater.dispatcher.add_error_handler(error)
     # TODO try again for a while, if still cannot then use messagehandler
     updater.dispatcher.add_handler(ChosenInlineResultHandler(action))
     updater.start_polling()
