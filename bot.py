@@ -61,7 +61,7 @@ def stop(update, context):
         context.bot.send_message(chat_id=chatId, text='No game started!')
         return
     game = Game.games[chatId]
-    if not game.started():  # no need to update join message after game started
+    if game.phase==Game.JOIN_PHASE:  # no need update join msg aft game starts
         update_join_message(chatId, buttons=False)
     game.stop()
     joinMessage = joinMessages[chatId]
@@ -129,7 +129,7 @@ def insert_AI(update, context):
     game = Game.games[chatId]
     if game.full():
         return
-    # does not matter if add fail due to full
+    # does not matter if add fail due to full players
     game.add_AI()
     if not game.full():
         update_join_message(chatId)
@@ -179,16 +179,16 @@ def translate_bid(bid):
         return 'PASS'
     return bid
 
+def translate_card(card):
+    '''Returns card in a more readable form.'''
+    # TODO
+    return card
+
 def request_bid(chatId, context):
     game = Game.games[chatId]
     player = game.activePlayer
-    if player is game.declarer:
-        context.bot.send_message(
-            chat_id=chatId, 
-            text='[{}](tg://user?id={}), '.format(player.name, player.id)+
-                'you won the bid! Please choose your partner\'s card.',
-            parse_mode=ParseMode.MARKDOWN
-        )
+    if game.phase == Game.CALL_PHASE:
+        request_partner(chatId, context)
         return
     if player.isAI:
         bid = player.make_bid()
@@ -205,8 +205,20 @@ def request_bid(chatId, context):
         parse_mode=ParseMode.MARKDOWN
     )
 
+def request_partner(chatId, context):
+    game = Game.games[chatId]
+    player = game.activePlayer
+    if player.isAI:
+        # TODO handle call partner for AI
+        pass
+    context.bot.send_message(
+        chat_id=chatId, 
+        text='[{}](tg://user?id={}), '.format(player.name, player.id)+
+            'you won the bid! Please choose your partner\'s card.',
+        parse_mode=ParseMode.MARKDOWN
+    )
+
 def inline_action(update, context):
-    # TODO card
     inlineQuery = update.inline_query
     query = inlineQuery.query
     if not query:
@@ -214,27 +226,58 @@ def inline_action(update, context):
     user = inlineQuery.from_user
     if user.id not in Player.players:
         return
-    results = []
     player = Player.players[user.id]
     game = player.game
-    for bid in game.valid_bids():
-        results.append(InlineQueryResultArticle(
-            id=bid,
-            title=bid,
-            input_message_content=InputTextMessageContent(translate_bid(bid))
-        ))
+    if player is not game.activePlayer:
+        return
+    results = []
+    if game.phase == Game.BID_PHASE:
+        for bid in game.valid_bids():
+            results.append(InlineQueryResultArticle(
+                id=bid,
+                title=bid,
+                input_message_content=InputTextMessageContent(translate_bid(bid))
+            ))
+    elif game.phase==Game.CALL_PHASE:
+        # max 50 results for inline query but 52 cards
+        # for now don't allow self-calling
+        # TODO use query to search for card
+        for card in Game.deck:
+            if card not in player.hand:
+                results.append(InlineQueryResultArticle(
+                    id=card,
+                    title=card,
+                    input_message_content=InputTextMessageContent(
+                        translate_card(card)
+                    )
+                ))
+    # TODO play phase
     context.bot.answer_inline_query(inlineQuery.id, results)
 
 def action(update, context):
-    # TODO cards
+    # TODO play phase
     result = update.chosen_inline_result
-    bid = result.result_id
     playerId = result.from_user.id
     player = Player.players[playerId]
-    player.make_bid(bid)
+    game = player.game
     chatId = player.game.id
-    request_bid(chatId, context)
-    
+    if game.phase == Game.BID_PHASE:
+        bid = result.result_id
+        if not player.make_bid(bid):
+            context.bot.send_message(
+                chat_id=chatId, 
+                text='Not your turn or invalid bid!'
+            )
+        request_bid(chatId, context)
+    elif game.phase == Game.CALL_PHASE:
+        card = result.result_id
+        if not player.call_partner(card):
+            context.bot.send_message(
+                chat_id=chatId, 
+                text='Not your turn or invalid card!'
+            )
+            request_partner(chatId, context)
+        # TODO request card lead player
 
 def error(update, context):
     logger.warning('Update "%s" caused error "%s"', update, context.error)
@@ -247,7 +290,6 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(InlineQueryHandler(inline_action))
     # TODO uncomment add_error_handler for final product
     updater.dispatcher.add_error_handler(error)
-    # TODO try again for a while, if still cannot then use messagehandler
     updater.dispatcher.add_handler(ChosenInlineResultHandler(action))
     updater.start_polling()
     updater.idle()

@@ -21,23 +21,24 @@ class Game:
         '7C', '7D', '7H', '7S', '7N'
     )
     PASS = 'PASS'
+    JOIN_PHASE = 0
+    BID_PHASE = 1
+    CALL_PHASE = 2
+    PLAY_PHASE = 3
     
     def __init__(self, id):
         self.id = id
         self.players = []
-        self.phase = 0  # 0:join, 1:bid/call, 2:play
+        self.phase = Game.JOIN_PHASE
         self.activePlayer = None
         self.declarer = None
-        self.bid = Game.PASS   # (''=empty str=PASS), 1N, 2S, 3H, 4D, 5C, etc.
+        self.bid = Game.PASS   # 1N, 2S, 3H, 4D, 5C, etc.
         self.trump = '' # N, S, H, D, C
         self.contract = 0   # 7, 8, 9, 10, 11, 12, 13
         Game.games[id] = self
 
     def full(self):
         return len(self.players) >= 4
-    
-    def started(self):
-        return self.phase>0
     
     def add_human(self, id, name):
         if self.full() or id in Player.players:
@@ -78,13 +79,13 @@ class Game:
         return False
     
     def start(self):
-        self.phase = 1
+        self.phase = Game.BID_PHASE
         dealDeck = list(Game.deck)
         shuffle(dealDeck)
-        self.players[0].hand = dealDeck[:13]
-        self.players[1].hand = dealDeck[13:26]
-        self.players[2].hand = dealDeck[26:39]
-        self.players[3].hand = dealDeck[39:]
+        self.players[0].hand = sorted(dealDeck[:13])
+        self.players[1].hand = sorted(dealDeck[13:26])
+        self.players[2].hand = sorted(dealDeck[26:39])
+        self.players[3].hand = sorted(dealDeck[39:])
         self.activePlayer = self.players[0]
     
     def stop(self):
@@ -102,6 +103,12 @@ class Game:
             return (Game.PASS,) + Game.bids
         index = Game.bids.index(self.bid)
         return (Game.PASS,) + Game.bids[index+1:]
+    
+    def start_play(self):
+        self.phase = Game.PLAY_PHASE
+        if not self.trump:  # declarer lead if no trump
+            return
+        self.next()
 
 
 class Player:
@@ -114,15 +121,43 @@ class Player:
         self.game = None
         self.isAI = isAI
         self.hand = []
+        self.partner = None
         Player.players[id] = self
     
     def make_bid(self, bid=Game.PASS):
+        game = self.game
+        if self is not game.activePlayer:
+            return
+        validBids = self.game.valid_bids()
         if self.isAI:
             # TODO code AI logic
-            validBids = self.game.valid_bids()
             bid = choice(validBids)
+        if bid not in validBids:
+            return
         if bid!=Game.PASS:
             self.game.declarer = self
             self.game.bid = bid
         self.game.next()
+        if self.game.activePlayer == self.game.declarer:
+            self.game.phase = Game.CALL_PHASE
         return bid
+    
+    def call_partner(self, card='SA'):
+        game = self.game
+        if self is not game.activePlayer:
+            return
+        if self.isAI:
+            # TODO code AI logic
+            card = choice(Game.deck)
+        if card not in Game.deck:
+            return
+        opponent = None
+        for player in self.game.players:
+            if card in player.hand:
+                # only care who is declarer's partner
+                # play whole game and see
+                # whether declarer and partner (possibly self) fulfill contract
+                self.partner = player
+                break
+        game.start_play()
+        return card
