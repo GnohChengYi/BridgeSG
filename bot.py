@@ -200,15 +200,15 @@ def request_bid(chatId, context):
         bid = player.make_bid()
         context.bot.send_message(
             chat_id=chatId, 
-            text='{}:  {}'.format(player.name, translate_bid(bid))
+            text='{}: {}'.format(player.name, translate_bid(bid))
         )
         request_bid(chatId, context)
         return
     text = 'Current Bid: {}\n'.format(game.bid)
     if not game.declarer:
-        text += 'Bidder       : {}\n'.format(None)
+        text += 'Bidder: {}\n'.format(None)
     else:
-        text += 'Bidder       : {}\n'.format(game.declarer.name)
+        text += 'Bidder: {}\n'.format(game.declarer.name)
     text += '[{}](tg://user?id={}), '.format(player.name, player.id)
     text += 'your turn to bid!'
     context.bot.send_message(
@@ -233,6 +233,9 @@ def request_partner(chatId, context):
 
 def request_card(chatId, context):
     game = Game.games[chatId]
+    if game.phase == Game.END_PHASE:
+        conclude_game(chatId, context)
+        return
     player = game.activePlayer
     if player.isAI:
         card = player.play_card()
@@ -243,8 +246,8 @@ def request_card(chatId, context):
         request_card(chatId, context)
         return
     text  = 'Declarer: {}\n'.format(game.declarer.name)
-    text += 'Bid       : {}\n'.format(game.bid)
-    text += 'Partner : {}\n'.format(game.partnerCard)
+    text += 'Bid: {}\n'.format(game.bid)
+    text += 'Partner: {}\n'.format(game.partnerCard)
     for i in range(len(game.players)):
         text += '{} ({}): {}\n'.format(
             game.players[i].name,
@@ -258,6 +261,19 @@ def request_card(chatId, context):
         text=text, 
         parse_mode=ParseMode.MARKDOWN
     )
+
+def conclude_game(chatId, context):
+    game = Game.games[chatId]
+    text = 'Congratulations!\n'
+    for winner in game.winners:
+        text += '[{}](tg://user?id={})\n'.format(winner.name, winner.id)
+    text += 'You won the game!'
+    context.bot.send_message(
+        chat_id=chatId, 
+        text=text, 
+        parse_mode=ParseMode.MARKDOWN
+    )
+    game.stop()
 
 def inline_action(update, context):
     inlineQuery = update.inline_query

@@ -25,6 +25,7 @@ class Game:
     BID_PHASE = 1
     CALL_PHASE = 2
     PLAY_PHASE = 3
+    END_PHASE = 4
     
     def __init__(self, id):
         self.id = id
@@ -39,6 +40,8 @@ class Game:
         # list of cards, corresponds to current order of players
         # None if not play card yet
         self.currentTrick = [None]*4
+        self.totalTricks = 0    # declarer+partner's tricks, update in end phase
+        self.winners = set()
         Game.games[id] = self
 
     def full(self):
@@ -135,6 +138,17 @@ class Game:
         self.activePlayer = winner
         self.players = self.players[index:] + self.players[:index]
         self.currentTrick = [None]*4
+        if len(self.activePlayer.hand) == 0:    # next player no more cards=end
+            self.conclude()
+    
+    def conclude(self):
+        self.phase = Game.END_PHASE
+        self.totalTricks = self.declarer.tricks
+        if self.declarer.partner is not self.declarer:
+            self.totalTricks += self.declarer.partner.tricks
+        self.winners = {self.declarer, self.declarer.partner}
+        if self.totalTricks < self.contract:
+            self.winners = set(self.players) - self.winners
 
 
 class Player:
