@@ -28,13 +28,17 @@ class Game:
     
     def __init__(self, id):
         self.id = id
-        self.players = []
+        self.players = []   # leading player of current trick always first
         self.phase = Game.JOIN_PHASE
         self.activePlayer = None
         self.declarer = None
         self.bid = Game.PASS   # 1N, 2S, 3H, 4D, 5C, etc.
         self.trump = '' # N, S, H, D, C
         self.contract = 0   # 7, 8, 9, 10, 11, 12, 13
+        self.partnerCard = None
+        # list of cards, corresponds to current order of players
+        # None if not play card yet
+        self.currentTrick = [None]*4
         Game.games[id] = self
 
     def full(self):
@@ -105,10 +109,32 @@ class Game:
         return (Game.PASS,) + Game.bids[index+1:]
     
     def start_play(self):
+        # 2N for 2 No Trump self.bid. '' for no trump self.trump.
+        self.trump = self.bid[1] if self.bid[1]!='N' else ''
+        self.contract = int(self.bid[0]) + 6
         self.phase = Game.PLAY_PHASE
-        if not self.trump:  # declarer lead if no trump
-            return
-        self.next()
+        # next player lead if have trump, declarer lead if no trump
+        if self.trump:
+            self.next()
+        # reorder players list so that first player leads
+        index = self.players.index(self.activePlayer)
+        self.players = self.players[index:] + self.players[:index]
+    
+    def complete_trick(self):
+        if not self.trump or \
+            self.trump not in [card[0] for card in self.currentTrick]:
+            suit = self.currentTrick[0][0]
+        else:
+            suit = self.trump
+        cardsOfSuit = [card for card in self.currentTrick if card[0]==suit]
+        cardsOfSuit.sort(key=lambda card:Game.deck.index(card))
+        highestCard = cardsOfSuit[0]
+        index = self.currentTrick.index(highestCard)
+        winner = self.players[index]
+        winner.tricks += 1
+        self.activePlayer = winner
+        self.players = self.players[index:] + self.players[:index]
+        self.currentTrick = [None]*4
 
 
 class Player:
@@ -121,25 +147,30 @@ class Player:
         self.game = None
         self.isAI = isAI
         self.hand = []
+        self.handMessage = None
         self.partner = None
+        self.tricks = 0
         Player.players[id] = self
     
     def make_bid(self, bid=Game.PASS):
         game = self.game
         if self is not game.activePlayer:
             return
-        validBids = self.game.valid_bids()
+        validBids = game.valid_bids()
         if self.isAI:
             # TODO code AI logic
-            bid = choice(validBids)
+            bid = choice(validBids[:2])
         if bid not in validBids:
             return
         if bid!=Game.PASS:
-            self.game.declarer = self
-            self.game.bid = bid
-        self.game.next()
-        if self.game.activePlayer == self.game.declarer:
-            self.game.phase = Game.CALL_PHASE
+            game.declarer = self
+            game.bid = bid
+        game.next()
+        # everyone passed, nobody bidded
+        if game.activePlayer==game.players[0] and game.bid==Game.PASS:
+            game.stop()
+        if game.activePlayer == game.declarer:
+            game.phase = Game.CALL_PHASE
         return bid
     
     def call_partner(self, card='SA'):
@@ -151,7 +182,7 @@ class Player:
             card = choice(Game.deck)
         if card not in Game.deck:
             return
-        opponent = None
+        game.partnerCard = card
         for player in self.game.players:
             if card in player.hand:
                 # only care who is declarer's partner
@@ -160,4 +191,30 @@ class Player:
                 self.partner = player
                 break
         game.start_play()
+        return card
+    
+    def valid_cards(self):
+        leadingCard = self.game.currentTrick[0]
+        if not leadingCard:
+            return self.hand
+        leadingSuit = leadingCard[0]
+        result = [card for card in self.hand if card[0]==leadingSuit]
+        return result if len(result)>0 else self.hand
+    
+    def play_card(self, card='SA'):
+        game = self.game        
+        if self is not game.activePlayer:
+            return
+        validCards = self.valid_cards()
+        if self.isAI:
+            card = choice(validCards)
+        if card not in validCards:
+            return
+        self.hand.remove(card)
+        index = game.players.index(self)
+        game.currentTrick[index] = card
+        if self is game.players[-1]:    # last player to play for current trick
+            game.complete_trick()
+        else:
+            game.next()
         return card

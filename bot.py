@@ -166,7 +166,7 @@ def start_game(update, context):
     game.start()
     for player in game.players:
         if not player.isAI:
-            context.bot.send_message(
+            player.handMessage = context.bot.send_message(
                 chat_id=player.id, 
                 text='Your Hand:\n'+str(player.hand)
             )
@@ -185,6 +185,12 @@ def translate_card(card):
     return card
 
 def request_bid(chatId, context):
+    if chatId not in Game.games:    # everyone passed, game stopped
+        context.bot.send_message(
+            chat_id=chatId, 
+            text='Everyone passed! Game ended.'
+        )
+        return
     game = Game.games[chatId]
     player = game.activePlayer
     if game.phase == Game.CALL_PHASE:
@@ -198,10 +204,16 @@ def request_bid(chatId, context):
         )
         request_bid(chatId, context)
         return
+    text = 'Current Bid: {}\n'.format(game.bid)
+    if not game.declarer:
+        text += 'Bidder       : {}\n'.format(None)
+    else:
+        text += 'Bidder       : {}\n'.format(game.declarer.name)
+    text += '[{}](tg://user?id={}), '.format(player.name, player.id)
+    text += 'your turn to bid!'
     context.bot.send_message(
         chat_id=chatId,
-        text='[{}](tg://user?id={}), your turn to bid!'
-            .format(player.name, player.id),
+        text=text, 
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -209,12 +221,41 @@ def request_partner(chatId, context):
     game = Game.games[chatId]
     player = game.activePlayer
     if player.isAI:
-        # TODO handle call partner for AI
-        pass
+        player.call_partner()
+        request_card(chatId, context)
+        return
     context.bot.send_message(
         chat_id=chatId, 
         text='[{}](tg://user?id={}), '.format(player.name, player.id)+
-            'you won the bid! Please choose your partner\'s card.',
+            'you won the bid! Choose your partner\'s card!',
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+def request_card(chatId, context):
+    game = Game.games[chatId]
+    player = game.activePlayer
+    if player.isAI:
+        card = player.play_card()
+        context.bot.send_message(
+            chat_id=chatId, 
+            text='{}: {}'.format(player.name, translate_card(card))
+        )
+        request_card(chatId, context)
+        return
+    text  = 'Declarer: {}\n'.format(game.declarer.name)
+    text += 'Bid       : {}\n'.format(game.bid)
+    text += 'Partner : {}\n'.format(game.partnerCard)
+    for i in range(len(game.players)):
+        text += '{} ({}): {}\n'.format(
+            game.players[i].name,
+            game.players[i].tricks,  
+            game.currentTrick[i]
+        )
+    text += '[{}](tg://user?id={}), '.format(player.name, player.id)
+    text += 'you turn to play a card!'
+    context.bot.send_message(
+        chat_id=chatId, 
+        text=text, 
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -238,7 +279,7 @@ def inline_action(update, context):
                 title=bid,
                 input_message_content=InputTextMessageContent(translate_bid(bid))
             ))
-    elif game.phase==Game.CALL_PHASE:
+    elif game.phase == Game.CALL_PHASE:
         # max 50 results for inline query but 52 cards
         # for now don't allow self-calling
         # TODO use query to search for card
@@ -246,16 +287,23 @@ def inline_action(update, context):
             if card not in player.hand:
                 results.append(InlineQueryResultArticle(
                     id=card,
-                    title=card,
+                    title=translate_card(card),
                     input_message_content=InputTextMessageContent(
                         translate_card(card)
                     )
                 ))
-    # TODO play phase
+    elif game.phase == Game.PLAY_PHASE:
+        for card in player.valid_cards():
+            results.append(InlineQueryResultArticle(
+                id=card,
+                title=translate_card(card),
+                input_message_content=InputTextMessageContent(
+                    translate_card(card)
+                )
+            ))
     context.bot.answer_inline_query(inlineQuery.id, results)
 
 def action(update, context):
-    # TODO play phase
     result = update.chosen_inline_result
     playerId = result.from_user.id
     player = Player.players[playerId]
@@ -277,7 +325,19 @@ def action(update, context):
                 text='Not your turn or invalid card!'
             )
             request_partner(chatId, context)
-        # TODO request card lead player
+            return
+        # start playing cards
+        request_card(chatId, context)
+    elif game.phase == Game.PLAY_PHASE:
+        card = result.result_id
+        if not player.play_card(card):
+            context.bot.send_message(
+                chat_id=chatId, 
+                text='Not your turn or invalid card!'
+            )
+        else:
+            player.handMessage.edit_text(str(player.hand))
+        request_card(chatId, context)
 
 def error(update, context):
     logger.warning('Update "%s" caused error "%s"', update, context.error)
@@ -289,7 +349,7 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
     updater.dispatcher.add_handler(InlineQueryHandler(inline_action))
     # TODO uncomment add_error_handler for final product
-    updater.dispatcher.add_error_handler(error)
+    #updater.dispatcher.add_error_handler(error)
     updater.dispatcher.add_handler(ChosenInlineResultHandler(action))
     updater.start_polling()
     updater.idle()
