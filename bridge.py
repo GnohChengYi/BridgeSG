@@ -40,6 +40,7 @@ class Game:
         # list of cards, corresponds to current order of players
         # None if not play card yet
         self.currentTrick = [None]*4
+        self.trumpBroken = False
         self.totalTricks = 0    # declarer+partner's tricks, update in end phase
         self.winners = set()
         Game.games[id] = self
@@ -89,10 +90,11 @@ class Game:
         self.phase = Game.BID_PHASE
         dealDeck = list(Game.deck)
         shuffle(dealDeck)
-        self.players[0].hand = sorted(dealDeck[:13])
-        self.players[1].hand = sorted(dealDeck[13:26])
-        self.players[2].hand = sorted(dealDeck[26:39])
-        self.players[3].hand = sorted(dealDeck[39:])
+        key = lambda x: (x[0], 'AKQJT98765432'.index(x[1]))
+        self.players[0].hand = sorted(dealDeck[:13], key=key)
+        self.players[1].hand = sorted(dealDeck[13:26], key=key)
+        self.players[2].hand = sorted(dealDeck[26:39], key=key)
+        self.players[3].hand = sorted(dealDeck[39:], key=key)
         self.activePlayer = self.players[0]
     
     def stop(self):
@@ -209,11 +211,17 @@ class Player:
     
     def valid_cards(self):
         leadingCard = self.game.currentTrick[0]
+        game = self.game
         if not leadingCard:
-            return self.hand
+            result = self.hand
+            if game.trump and not game.trumpBroken:
+                result = list(filter(lambda card:card[0]!=game.trump, result))
+            return result
         leadingSuit = leadingCard[0]
         result = [card for card in self.hand if card[0]==leadingSuit]
-        return result if len(result)>0 else self.hand
+        if len(result)==0:  # can break trump now
+            return self.hand
+        return result
     
     def play_card(self, card='SA'):
         game = self.game        
@@ -231,4 +239,6 @@ class Player:
             game.complete_trick()
         else:
             game.next()
+        if not game.trumpBroken and card[0]==game.trump:
+            game.trumpBroken = True
         return card

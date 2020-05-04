@@ -1,3 +1,7 @@
+# TODO
+# no wash
+# condi
+
 import os
 from telegram.ext import ChosenInlineResultHandler, CommandHandler, \
     CallbackQueryHandler, InlineQueryHandler, Updater
@@ -10,7 +14,11 @@ from bridge import Game, Player
 #token = os.environ['TELEGRAM_TOKEN']
 token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
 
-updater = Updater(token=token, use_context=True)
+updater = Updater(
+    token=token, 
+    use_context=True, 
+    request_kwargs={'read_timeout': 20, 'connect_timeout': 20}
+)
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
@@ -158,6 +166,47 @@ def button(update, context):
         delete_AI(update, context)
     update.callback_query.answer()
 
+def translate_bid(bid):
+    '''Returns bid in a more readable form.'''
+    if bid == Game.PASS:
+        return 'PASS'
+    bid = bid.replace('S', '♠️')
+    bid = bid.replace('H', '❤️')
+    bid = bid.replace('D', '♦️')
+    bid = bid.replace('C', '♣️')
+    bid = bid.replace('N', '🚫')
+    return bid
+
+def translate_card(card):
+    '''Returns card in a more readable form.'''
+    if not card:
+        return
+    card = card[::-1]
+    card = card.replace('T', '10')
+    card = card.replace('S', '♠️')
+    card = card.replace('H', '❤️')
+    card = card.replace('D', '♦️')
+    card = card.replace('C', '♣️')
+    return card
+
+def translate_hand(hand):
+    club, diamond, heart, spade = [], [], [], []
+    for card in hand:
+        if card[0]=='C':
+            club.append(card[1])
+        elif card[0]=='D':
+            diamond.append(card[1])
+        elif card[0]=='H':
+            heart.append(card[1])
+        elif card[0]=='S':
+            spade.append(card[1])
+    result = ''
+    for suit,symbol in ((club,'♣️'),(diamond,'♦️'),(heart,'❤️'),(spade,'♠️')):
+        line = symbol + ': ' + ' '.join(suit) + '\n'
+        line.replace('T', '10')
+        result += line
+    return result
+
 def start_game(update, context):
     chatId = update.effective_chat.id
     update_join_message(chatId, buttons=False)
@@ -168,21 +217,9 @@ def start_game(update, context):
         if not player.isAI:
             player.handMessage = context.bot.send_message(
                 chat_id=player.id, 
-                text='Your Hand:\n'+str(player.hand)
+                text='Your Hand:\n'+translate_hand(player.hand)
             )
     request_bid(chatId, context)
-
-def translate_bid(bid):
-    '''Returns bid in a more readable form.'''
-    # TODO
-    if bid == Game.PASS:
-        return 'PASS'
-    return bid
-
-def translate_card(card):
-    '''Returns card in a more readable form.'''
-    # TODO
-    return card
 
 def request_bid(chatId, context):
     if chatId not in Game.games:    # everyone passed, game stopped
@@ -204,7 +241,7 @@ def request_bid(chatId, context):
         )
         request_bid(chatId, context)
         return
-    text = 'Current Bid: {}\n'.format(game.bid)
+    text = 'Current Bid: {}\n'.format(translate_bid(game.bid))
     if not game.declarer:
         text += 'Bidder: {}\n'.format(None)
     else:
@@ -246,15 +283,15 @@ def request_card(chatId, context):
         request_card(chatId, context)
         return
     text  = 'Declarer: {}\n'.format(game.declarer.name)
-    text += 'Bid: {}\n'.format(game.bid)
-    text += 'Partner: {}\n'.format(game.partnerCard)
+    text += 'Bid: {}\n'.format(translate_bid(game.bid))
+    text += 'Partner: {}\n\n'.format(translate_card(game.partnerCard))
     for i in range(len(game.players)):
         text += '{} ({}): {}\n'.format(
             game.players[i].name,
             game.players[i].tricks,  
-            game.currentTrick[i]
+            translate_card(game.currentTrick[i])
         )
-    text += '[{}](tg://user?id={}), '.format(player.name, player.id)
+    text += '\n[{}](tg://user?id={}), '.format(player.name, player.id)
     text += 'you turn to play a card!'
     context.bot.send_message(
         chat_id=chatId, 
@@ -292,7 +329,7 @@ def inline_action(update, context):
         for bid in game.valid_bids():
             results.append(InlineQueryResultArticle(
                 id=bid,
-                title=bid,
+                title=translate_bid(bid),
                 input_message_content=InputTextMessageContent(translate_bid(bid))
             ))
     elif game.phase == Game.CALL_PHASE:
@@ -317,7 +354,12 @@ def inline_action(update, context):
                     translate_card(card)
                 )
             ))
-    context.bot.answer_inline_query(inlineQuery.id, results)
+    context.bot.answer_inline_query(
+        inlineQuery.id, 
+        results,
+        cache_time=1,
+        is_personal=True
+    )
 
 def action(update, context):
     result = update.chosen_inline_result
@@ -352,7 +394,7 @@ def action(update, context):
                 text='Not your turn or invalid card!'
             )
         else:
-            player.handMessage.edit_text(str(player.hand))
+            player.handMessage.edit_text(translate_hand(player.hand))
         request_card(chatId, context)
 
 def error(update, context):
