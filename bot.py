@@ -170,10 +170,10 @@ def translate_bid(bid):
     '''Returns bid in a more readable form.'''
     if bid == Game.PASS:
         return 'PASS'
-    bid = bid.replace('S', '♠️')
-    bid = bid.replace('H', '❤️')
-    bid = bid.replace('D', '♦️')
     bid = bid.replace('C', '♣️')
+    bid = bid.replace('D', '♦️')
+    bid = bid.replace('H', '❤️')
+    bid = bid.replace('S', '♠️')
     bid = bid.replace('N', '🚫')
     return bid
 
@@ -183,12 +183,12 @@ def translate_card(card):
         return
     card = card[::-1]
     card = card.replace('T', '10')
-    card = card.replace('S', '♠️')
-    card = card.replace('H', '❤️')
-    card = card.replace('D', '♦️')
     card = card.replace('C', '♣️')
+    card = card.replace('D', '♦️')
+    card = card.replace('H', '❤️')
+    card = card.replace('S', '♠️')
     return card
-
+    
 def translate_hand(hand):
     club, diamond, heart, spade = [], [], [], []
     for card in hand:
@@ -203,9 +203,33 @@ def translate_hand(hand):
     result = ''
     for suit,symbol in ((club,'♣️'),(diamond,'♦️'),(heart,'❤️'),(spade,'♠️')):
         line = symbol + ': ' + ' '.join(suit) + '\n'
-        line.replace('T', '10')
+        line = line.replace('T', '10')
         result += line
     return result
+
+def thumb_url_bid(bid):
+    if bid==Game.PASS:
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/waving-white-flag_1f3f3.png'
+    if bid[1]=='C':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/black-club-suit_2663.png'
+    if bid[1]=='D':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/black-diamond-suit_2666.png'
+    if bid[1]=='H':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/black-heart-suit_2665.png'
+    if bid[1]=='S':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/black-spade-suit_2660.png'
+    if bid[1]=='N':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/google/241/prohibited_1f6ab.png'
+
+def thumb_url_card(card):
+    if card[0]=='C':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-club-suit_2663.png'
+    if card[0]=='D':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-diamond-suit_2666.png'
+    if card[0]=='H':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-heart-suit_2665.png'
+    if card[0]=='S':
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-spade-suit_2660.png'
 
 def start_game(update, context):
     chatId = update.effective_chat.id
@@ -332,7 +356,8 @@ def inline_action(update, context):
             results.append(InlineQueryResultArticle(
                 id=bid,
                 title=translate_bid(bid),
-                input_message_content=InputTextMessageContent(translate_bid(bid))
+                input_message_content=InputTextMessageContent(translate_bid(bid)),
+                thumb_url=thumb_url_bid(bid)
             ))
     elif game.phase == Game.CALL_PHASE:
         # max 50 results for inline query but 52 cards
@@ -345,7 +370,8 @@ def inline_action(update, context):
                     title=translate_card(card),
                     input_message_content=InputTextMessageContent(
                         translate_card(card)
-                    )
+                    ),
+                    thumb_url=thumb_url_card(card)
                 ))
     elif game.phase == Game.PLAY_PHASE:
         for card in player.valid_cards():
@@ -354,7 +380,8 @@ def inline_action(update, context):
                 title=translate_card(card),
                 input_message_content=InputTextMessageContent(
                     translate_card(card)
-                )
+                ),
+                thumb_url=thumb_url_card(card)
             ))
     context.bot.answer_inline_query(
         inlineQuery.id, 
