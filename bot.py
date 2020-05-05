@@ -276,10 +276,12 @@ def request_card(chatId, context):
     player = game.activePlayer
     if player.isAI:
         card = player.play_card()
+        ''' # try reduce flood to avoid flood error
         context.bot.send_message(
             chat_id=chatId, 
             text='{}: {}'.format(player.name, translate_card(card))
         )
+        '''
         request_card(chatId, context)
         return
     text  = 'Declarer: {}\n'.format(game.declarer.name)
