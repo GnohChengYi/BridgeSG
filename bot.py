@@ -231,6 +231,21 @@ def thumb_url_card(card):
     if card[0]=='S':
         return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-spade-suit_2660.png'
 
+def trick_text(game):
+    text  = 'Declarer: {}\n'.format(game.declarer.name)
+    text += 'Bid: {}\n'.format(translate_bid(game.bid))
+    text += 'Partner: {}\n\n'.format(translate_card(game.partnerCard))
+    for i in range(len(game.players)):
+        text += '{} ({}): {}\n'.format(
+            game.players[i].name,
+            game.players[i].tricks,  
+            translate_card(game.currentTrick[i])
+        )
+    player = game.activePlayer
+    text += '\n[{}](tg://user?id={}), '.format(player.name, player.id)
+    text += 'you turn to play a card!'
+    return text
+
 def start_game(update, context):
     chatId = update.effective_chat.id
     update_join_message(chatId, buttons=False)
@@ -306,20 +321,9 @@ def request_card(chatId, context):
         )
         request_card(chatId, context)
         return
-    text  = 'Declarer: {}\n'.format(game.declarer.name)
-    text += 'Bid: {}\n'.format(translate_bid(game.bid))
-    text += 'Partner: {}\n\n'.format(translate_card(game.partnerCard))
-    for i in range(len(game.players)):
-        text += '{} ({}): {}\n'.format(
-            game.players[i].name,
-            game.players[i].tricks,  
-            translate_card(game.currentTrick[i])
-        )
-    text += '\n[{}](tg://user?id={}), '.format(player.name, player.id)
-    text += 'you turn to play a card!'
     context.bot.send_message(
         chat_id=chatId, 
-        text=text, 
+        text=trick_text(game), 
         parse_mode=ParseMode.MARKDOWN
     )
 
