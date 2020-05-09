@@ -31,6 +31,7 @@ class Game:
     
     def __init__(self, id):
         self.id = id
+        self.joinMessage = None
         self.players = []   # leading player of current trick always first
         self.phase = Game.JOIN_PHASE
         self.activePlayer = None
@@ -42,7 +43,6 @@ class Game:
         # list of cards, corresponds to current order of players
         # None if not play card yet
         self.currentTrick = [None]*4
-        self.trickMessage = None
         self.trumpBroken = False
         self.totalTricks = 0    # declarer+partner's tricks, update in end phase
         self.winners = set()

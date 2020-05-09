@@ -2,30 +2,38 @@
 # no wash
 # condi
 
+import logging
 import os
-from telegram.ext import ChosenInlineResultHandler, CommandHandler, \
-    CallbackQueryHandler, InlineQueryHandler, Updater
+import telegram.bot
+from telegram.ext import CallbackQueryHandler, ChosenInlineResultHandler, \
+    CommandHandler, InlineQueryHandler, messagequeue, Updater
+from telegram.utils.request import Request
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, \
     InlineQueryResultArticle, InputTextMessageContent, ParseMode, TelegramError
-import logging
 from bridge import Game, Player
 
-# TODO pass token with os config vars for security
-#token = os.environ['TELEGRAM_TOKEN']
-token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
 
-updater = Updater(
-    token=token, 
-    use_context=True, 
-    request_kwargs={'read_timeout': 20, 'connect_timeout': 20}
-)
+class MQBot(telegram.bot.Bot):
+    '''A subclass of Bot which delegates send method handling to MQ
+    Copied from ptb Avoiding flood limits.
+    '''
+    def __init__(self, *args, is_queued_def=True, mqueue=None, **kwargs):
+        super(MQBot, self).__init__(*args, **kwargs)
+        # below 2 attributes should be provided for decorator usage
+        self._is_messages_queued_default = is_queued_def
+        self._msg_queue = mqueue or messagequeue.MessageQueue()
 
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
-logger = logging.getLogger(__name__)
+    def __del__(self):
+        try:
+            self._msg_queue.stop()
+        except:
+            pass
 
-# {chatId:Message}, messages waiting for players to join
-joinMessages = {}   
+    @messagequeue.queuedmessage
+    def send_message(self, *args, **kwargs):
+        '''Wrapped method would accept new `queued` and `isgroup`
+        OPTIONAL arguments'''
+        return super(MQBot, self).send_message(*args, **kwargs)
 
 
 def get_markup():
@@ -38,7 +46,7 @@ def get_markup():
 
 def update_join_message(chatId, buttons=True):
     game = Game.games[chatId]
-    joinMessage = joinMessages[chatId]
+    joinMessage = game.joinMessage
     text = "Waiting for players to join ...\nJoined players:\n"
     text += '\n'.join([player.name for player in game.players])
     if not buttons:
@@ -49,15 +57,16 @@ def update_join_message(chatId, buttons=True):
 def start(update, context):
     chatId = update.effective_chat.id
     if chatId in Game.games:
+        game = Game.games[chatId]
         context.bot.send_message(
-            reply_to_message_id=joinMessages[chatId].message_id,
+            reply_to_message_id=game.joinMessage.message_id,
             chat_id=chatId, 
             text='Game already started!'
         )
         return
     # create new Game and store in Game.games
-    Game(chatId)
-    joinMessages[chatId] = context.bot.send_message(
+    game = Game(chatId)
+    game.joinMessage = context.bot.send_message(
         chat_id=chatId,
         text="Waiting for players to join ...\nJoined players:",
         reply_markup=get_markup(),
@@ -72,13 +81,12 @@ def stop(update, context):
     if game.phase==Game.JOIN_PHASE:  # no need update join msg aft game starts
         update_join_message(chatId, buttons=False)
     game.stop()
-    joinMessage = joinMessages[chatId]
     context.bot.send_message(
-        reply_to_message_id=joinMessages[chatId].message_id,
+        reply_to_message_id=game.joinMessage.message_id,
         chat_id=chatId, 
         text='Game stopped.'
     )
-    del joinMessages[chatId]
+    del game
 
 def join(update, context):
     chatId = update.effective_chat.id
@@ -323,7 +331,6 @@ def request_card(chatId, context):
     if player.isAI:
         card = player.play_card()
         if card:
-            message = game.trickMessage
             context.bot.send_message(
                 chat_id=chatId,
                 text=trick_text(game, next=player is not game.players[-1]),
@@ -431,7 +438,6 @@ def action(update, context):
             )
         else:
             player.handMessage.edit_text(translate_hand(player.hand))
-            trickMessage = game.trickMessage
             context.bot.send_message(
                 chat_id=chatId,
                 text=trick_text(game, next=player is not game.players[-1]),
@@ -446,6 +452,22 @@ def error(update, context):
 
 
 if __name__ == '__main__':
+    # TODO pass token with os config vars for security
+    #token = os.environ['TELEGRAM_TOKEN']
+    token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
+    # 29 messages/1017 milliseconds would work like a charm - ptb wiki
+    q = messagequeue.MessageQueue(all_burst_limit=29, all_time_limit_ms=1017)
+    request = Request(con_pool_size=8)
+    updater = Updater(
+        token=token, 
+        use_context=True, 
+        request_kwargs={'read_timeout': 20, 'connect_timeout': 20}
+    )
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
+    )
+    logger = logging.getLogger(__name__)
     updater.dispatcher.add_handler(CommandHandler('start', start))
     updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
@@ -455,5 +477,4 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(ChosenInlineResultHandler(action))
     updater.start_polling()
     updater.idle()
-    
     
