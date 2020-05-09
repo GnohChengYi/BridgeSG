@@ -5,11 +5,13 @@ from random import choice, shuffle
 class Game:
     # {chatId:Game}, store all games
     games = {}
+    suits = 'CDHS'
+    numbers = 'AKQJT98765432'
     deck = (
-        'SA','SK','SQ','SJ','ST','S9','S8','S7','S6','S5','S4','S3','S2',
-        'HA','HK','HQ','HJ','HT','H9','H8','H7','H6','H5','H4','H3','H2',
+        'CA','CK','CQ','CJ','CT','C9','C8','C7','C6','C5','C4','C3','C2',
         'DA','DK','DQ','DJ','DT','D9','D8','D7','D6','D5','D4','D3','D2',
-        'CA','CK','CQ','CJ','CT','C9','C8','C7','C6','C5','C4','C3','C2'
+        'HA','HK','HQ','HJ','HT','H9','H8','H7','H6','H5','H4','H3','H2',
+        'SA','SK','SQ','SJ','ST','S9','S8','S7','S6','S5','S4','S3','S2'
     )
     bids = (
         '1C', '1D', '1H', '1S', '1N', 
@@ -40,6 +42,7 @@ class Game:
         # list of cards, corresponds to current order of players
         # None if not play card yet
         self.currentTrick = [None]*4
+        self.trickMessage = None
         self.trumpBroken = False
         self.totalTricks = 0    # declarer+partner's tricks, update in end phase
         self.winners = set()
@@ -125,6 +128,25 @@ class Game:
         index = self.players.index(self.activePlayer)
         self.players = self.players[index:] + self.players[:index]
     
+    '''
+    def winning_card(self):
+        if self.currentTrick[0]==None:
+            return
+        suit = self.currentTrick[0][0]
+        if self.trump in self.currentTrick:
+            suit = self.trump
+        cardsOfSuit = [c for c in self.currentTrick if c and c[0]==suit]
+        cardsOfSuit.sort(key=lambda card:Game.numbers.index(card[1]))
+        return cardsOfSuit[0]
+    
+    def highest_card(self, cards):
+        # don't care about leading suit
+        trump = self.trump
+        suit = self.currentTrick[0][0]
+        if card1[0]==trump and card2[0]==trump:
+            return
+    '''
+    
     def complete_trick(self):
         if not self.trump or \
             self.trump not in [card[0] for card in self.currentTrick]:
@@ -132,7 +154,7 @@ class Game:
         else:
             suit = self.trump
         cardsOfSuit = [card for card in self.currentTrick if card[0]==suit]
-        cardsOfSuit.sort(key=lambda card:Game.deck.index(card))
+        cardsOfSuit.sort(key=lambda card:Game.numbers.index(card[1]))
         highestCard = cardsOfSuit[0]
         index = self.currentTrick.index(highestCard)
         winner = self.players[index]
@@ -209,6 +231,61 @@ class Player:
         game.start_play()
         return card
     
+    def play_card(self, card='SA'):
+        game = self.game        
+        if self is not game.activePlayer:
+            return
+        validCards = self.valid_cards()
+        if self.isAI:
+            # pass validCards so that no need to call valid_cards() again in AI
+            card = self.choose_card_AI(validCards)
+        if card not in validCards:
+            return
+        self.hand.remove(card)
+        index = game.players.index(self)
+        game.currentTrick[index] = card
+        # TODO call game.complete_trick() in bot.py after showing current tricks
+        if self is game.players[-1]:
+            game.complete_trick()
+        else:
+            game.next()
+        if not game.trumpBroken and card[0]==game.trump:
+            game.trumpBroken = True
+        return card
+    
+    def choose_card_AI(self, validCards):
+        '''
+        game = self.game
+        trick = game.currentTrick
+        if not trick[0]:    # self lead
+            return choice(validCards)
+        trump = game.trump
+        winningCard = game.winning_card()
+        trumps = {card for card in validCards if card[0]==trump}
+        nonTrumps = set(validCards) - trumps
+        if len(trumps)>0 and 
+        
+        validSuits = {card[0] for card in validCards}
+        if trump in validSuits:
+            highCardCandidates = [card for card in validCards if card[0]==trump]
+            highCardCandidates.sort(key=lambda card:Game.numbers.index(card[1]))
+            highCard = highCardCandidates[0]
+        
+        
+        if trump and trump not in trick:
+            suit = trick[0][0]
+            cardsOfSuit = [card for card in trick if card and card[0]==suit]
+        if canWin:
+            # play high card
+            # TODO
+            pass
+        else:
+            # play low card
+            # TODO
+            pass
+        ''' 
+        return choice(validCards)
+
     def valid_cards(self):
         leadingCard = self.game.currentTrick[0]
         game = self.game
@@ -222,23 +299,3 @@ class Player:
         if len(result)==0:  # can break trump now
             return self.hand
         return result
-    
-    def play_card(self, card='SA'):
-        game = self.game        
-        if self is not game.activePlayer:
-            return
-        validCards = self.valid_cards()
-        if self.isAI:
-            card = choice(validCards)
-        if card not in validCards:
-            return
-        self.hand.remove(card)
-        index = game.players.index(self)
-        game.currentTrick[index] = card
-        if self is game.players[-1]:    # last player to play for current trick
-            game.complete_trick()
-        else:
-            game.next()
-        if not game.trumpBroken and card[0]==game.trump:
-            game.trumpBroken = True
-        return card
