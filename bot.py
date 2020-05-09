@@ -231,7 +231,7 @@ def thumb_url_card(card):
     if card[0]=='S':
         return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-spade-suit_2660.png'
 
-def trick_text(game):
+def trick_text(game, next=True):
     text  = 'Declarer: {}\n'.format(game.declarer.name)
     text += 'Bid: {}\n'.format(translate_bid(game.bid))
     text += 'Partner: {}\n\n'.format(translate_card(game.partnerCard))
@@ -241,9 +241,10 @@ def trick_text(game):
             game.players[i].tricks,  
             translate_card(game.currentTrick[i])
         )
-    player = game.activePlayer
-    text += '\n[{}](tg://user?id={}), '.format(player.name, player.id)
-    text += 'you turn to play a card!'
+    if next:
+        player = game.activePlayer
+        text += '\n[{}](tg://user?id={}), '.format(player.name, player.id)
+        text += 'you turn to play a card!'
     return text
 
 def start_game(update, context):
@@ -313,19 +314,24 @@ def request_card(chatId, context):
         conclude_game(chatId, context)
         return
     player = game.activePlayer
-    if player.isAI:
-        card = player.play_card()
+    if player is game.players[0]:
         context.bot.send_message(
             chat_id=chatId, 
-            text='{}: {}'.format(player.name, translate_card(card))
+            text=trick_text(game), 
+            parse_mode=ParseMode.MARKDOWN
         )
-        request_card(chatId, context)
-        return
-    context.bot.send_message(
-        chat_id=chatId, 
-        text=trick_text(game), 
-        parse_mode=ParseMode.MARKDOWN
-    )
+    if player.isAI:
+        card = player.play_card()
+        if card:
+            message = game.trickMessage
+            context.bot.send_message(
+                chat_id=chatId,
+                text=trick_text(game, next=player is not game.players[-1]),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            if player is game.players[-1]:
+                game.complete_trick()
+            request_card(chatId, context)
 
 def conclude_game(chatId, context):
     game = Game.games[chatId]
@@ -362,8 +368,7 @@ def inline_action(update, context):
                 thumb_url=thumb_url_bid(bid)
             ))
     elif game.phase == Game.CALL_PHASE:
-        # max 50 results for inline query but 52 cards
-        # for now don't allow self-calling
+        # max 50 queryresults but 52 cards -> for now don't allow self-calling
         # TODO use query to search for card
         for card in Game.deck:
             if card not in player.hand:
@@ -388,7 +393,7 @@ def inline_action(update, context):
     context.bot.answer_inline_query(
         inlineQuery.id, 
         results,
-        cache_time=1,
+        cache_time=2,
         is_personal=True
     )
 
@@ -426,7 +431,15 @@ def action(update, context):
             )
         else:
             player.handMessage.edit_text(translate_hand(player.hand))
-        request_card(chatId, context)
+            trickMessage = game.trickMessage
+            context.bot.send_message(
+                chat_id=chatId,
+                text=trick_text(game, next=player is not game.players[-1]),
+                parse_mode=ParseMode.MARKDOWN
+            )
+            if player is game.players[-1]:
+                game.complete_trick()
+            request_card(chatId, context)
 
 def error(update, context):
     logger.warning('Update "%s" caused error "%s"', update, context.error)

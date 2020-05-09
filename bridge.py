@@ -244,10 +244,8 @@ class Player:
         self.hand.remove(card)
         index = game.players.index(self)
         game.currentTrick[index] = card
-        # TODO call game.complete_trick() in bot.py after showing current tricks
-        if self is game.players[-1]:
-            game.complete_trick()
-        else:
+        # call game.complete_trick() in bot.py after showing current tricks
+        if self is not game.players[-1]:
             game.next()
         if not game.trumpBroken and card[0]==game.trump:
             game.trumpBroken = True
