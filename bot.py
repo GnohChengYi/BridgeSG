@@ -4,6 +4,7 @@
 
 import logging
 import os
+import time
 import telegram.bot
 from telegram.ext import CallbackQueryHandler, ChosenInlineResultHandler, \
     CommandHandler, InlineQueryHandler, messagequeue, Updater
@@ -33,7 +34,12 @@ class MQBot(telegram.bot.Bot):
     def send_message(self, *args, **kwargs):
         '''Wrapped method would accept new `queued` and `isgroup`
         OPTIONAL arguments'''
-        return super(MQBot, self).send_message(*args, **kwargs)
+        return super(MQBot, self).send_message(
+            *args, 
+            **kwargs, 
+            #queued=True,    # TODO what is this...
+            isgroup=True
+        )
 
 
 def get_markup():
@@ -70,7 +76,7 @@ def start(update, context):
         chat_id=chatId,
         text="Waiting for players to join ...\nJoined players:",
         reply_markup=get_markup(),
-    )
+    ).result()
 
 def stop(update, context):
     chatId = update.effective_chat.id
@@ -266,7 +272,7 @@ def start_game(update, context):
             player.handMessage = context.bot.send_message(
                 chat_id=player.id, 
                 text='Your Hand:\n'+translate_hand(player.hand)
-            )
+            ).result()
     request_bid(chatId, context)
 
 def request_bid(chatId, context):
@@ -448,6 +454,7 @@ def action(update, context):
             request_card(chatId, context)
 
 def error(update, context):
+    print('\n\nerror(update, context)')
     logger.warning('Update "%s" caused error "%s"', update, context.error)
 
 
@@ -455,13 +462,30 @@ if __name__ == '__main__':
     # TODO pass token with os config vars for security
     #token = os.environ['TELEGRAM_TOKEN']
     token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
-    # 29 messages/1017 milliseconds would work like a charm - ptb wiki
-    q = messagequeue.MessageQueue(all_burst_limit=29, all_time_limit_ms=1017)
+    # all 29 messages/1017 milliseconds would work like a charm - ptb wiki
+    q = messagequeue.MessageQueue(
+        # TODO change back to 29/1017
+        all_burst_limit=19, 
+        all_time_limit_ms=61020,
+        # TODO change if needed
+        group_burst_limit=19,
+        group_time_limit_ms=120000, # feels like not working
+    )
     request = Request(con_pool_size=8)
+    mqBot = MQBot(token, request=request, mqueue=q)
+    # TODO rm aft sure no need this
+    '''
     updater = Updater(
         token=token, 
         use_context=True, 
         request_kwargs={'read_timeout': 20, 'connect_timeout': 20}
+    )
+    '''
+    updater = Updater(
+        bot=mqBot, 
+        use_context=True, 
+        # TODO edit is needed
+        request_kwargs={'read_timeout': 62, 'connect_timeout': 62}
     )
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -473,7 +497,7 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
     updater.dispatcher.add_handler(InlineQueryHandler(inline_action))
     # TODO uncomment add_error_handler for final product
-    #updater.dispatcher.add_error_handler(error)
+    updater.dispatcher.add_error_handler(error)
     updater.dispatcher.add_handler(ChosenInlineResultHandler(action))
     updater.start_polling()
     updater.idle()
