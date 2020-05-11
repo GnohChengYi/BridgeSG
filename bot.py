@@ -7,39 +7,14 @@ import os
 import time
 import telegram.bot
 from telegram.ext import CallbackQueryHandler, ChosenInlineResultHandler, \
-    CommandHandler, InlineQueryHandler, messagequeue, Updater
+    CommandHandler, DelayQueue, InlineQueryHandler, messagequeue, Updater
 from telegram.utils.request import Request
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, \
     InlineQueryResultArticle, InputTextMessageContent, ParseMode, TelegramError
 from bridge import Game, Player
 
 
-class MQBot(telegram.bot.Bot):
-    '''A subclass of Bot which delegates send method handling to MQ
-    Copied from ptb Avoiding flood limits.
-    '''
-    def __init__(self, *args, is_queued_def=True, mqueue=None, **kwargs):
-        super(MQBot, self).__init__(*args, **kwargs)
-        # below 2 attributes should be provided for decorator usage
-        self._is_messages_queued_default = is_queued_def
-        self._msg_queue = mqueue or messagequeue.MessageQueue()
-
-    def __del__(self):
-        try:
-            self._msg_queue.stop()
-        except:
-            pass
-
-    @messagequeue.queuedmessage
-    def send_message(self, *args, **kwargs):
-        '''Wrapped method would accept new `queued` and `isgroup`
-        OPTIONAL arguments'''
-        return super(MQBot, self).send_message(
-            *args, 
-            **kwargs, 
-            #queued=True,    # TODO what is this...
-            isgroup=True
-        )
+delayQueues = {}    # {chatId:DelayQueue}
 
 
 def get_markup():
@@ -56,15 +31,23 @@ def update_join_message(chatId, buttons=True):
     text = "Waiting for players to join ...\nJoined players:\n"
     text += '\n'.join([player.name for player in game.players])
     if not buttons:
-        joinMessage.edit_text(text=text)
+        delayQueues[chatId](joinMessage.edit_text, text=text)
         return
-    joinMessage.edit_text(text=text, reply_markup=get_markup())
+    delayQueues[chatId](
+        joinMessage.edit_text, 
+        text=text, 
+        reply_markup=get_markup()
+    )
 
 def start(update, context):
     chatId = update.effective_chat.id
+    if chatId not in delayQueues:
+        # Official limit is 20 msg/1 min. Make it stricter here.
+        delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
     if chatId in Game.games:
         game = Game.games[chatId]
-        context.bot.send_message(
+        delayQueues[chatId](
+            context.bot.send_message,
             reply_to_message_id=game.joinMessage.message_id,
             chat_id=chatId, 
             text='Game already started!'
@@ -76,18 +59,26 @@ def start(update, context):
         chat_id=chatId,
         text="Waiting for players to join ...\nJoined players:",
         reply_markup=get_markup(),
-    ).result()
+    )
 
 def stop(update, context):
     chatId = update.effective_chat.id
+    if chatId not in delayQueues:
+        # Official limit is 20 msg/1 min. Make it stricter here.
+        delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
     if chatId not in Game.games:
-        context.bot.send_message(chat_id=chatId, text='No game started!')
+        delayQueues[chatId](
+            context.bot.send_message,
+            chat_id=chatId, 
+            text='No game started!'
+        )
         return
     game = Game.games[chatId]
     if game.phase==Game.JOIN_PHASE:  # no need update join msg aft game starts
         update_join_message(chatId, buttons=False)
     game.stop()
-    context.bot.send_message(
+    delayQueues[chatId](
+        context.bot.send_message,
         reply_to_message_id=game.joinMessage.message_id,
         chat_id=chatId, 
         text='Game stopped.'
@@ -105,7 +96,8 @@ def join(update, context):
     # slim possibility of failure due to full of players
     # (checked for fullness above and in game.add_humen(...))
     if not joinSuccess:
-        context.bot.send_message(
+        delayQueues[chatId](
+            context.bot.send_message,
             chat_id=chatId,
             text='[{}](tg://user?id={}), '.format(user.first_name, user.id)+
                 'you already joined a game (possibly in another chat).',
@@ -115,7 +107,8 @@ def join(update, context):
     try:
         context.bot.send_message(chat_id=user.id, text='Joined game!')
     except(TelegramError):
-        context.bot.send_message(
+        delayQueues[chatId](
+            context.bot.send_message,
             chat_id=chatId,
             text = '[{}](tg://user?id={}), '.format(user.first_name, user.id)+
             'please initiate a conversation with me @MYSGBridgeBot!',
@@ -136,7 +129,8 @@ def quit(update, context):
     game = Game.games[chatId]
     quitSuccess = game.del_human(user.id)
     if not quitSuccess:
-        context.bot.send_message(
+        delayQueues[chatId](
+            context.bot.send_message,
             chat_id=chatId,
             text='[{}](tg://user?id={}), '.format(user.first_name, user.id)+
                 'you are not in the game of this chat!',
@@ -164,7 +158,11 @@ def delete_AI(update, context):
     game = Game.games[chatId]
     delSuccess = game.del_AI()
     if not delSuccess:
-        context.bot.send_message(chat_id=chatId, text = 'No AI in the game!')
+        delayQueues[chatId](
+            context.bot.send_message,
+            chat_id=chatId, 
+            text = 'No AI in the game!'
+        )
         return
     update_join_message(chatId)
 
@@ -258,13 +256,17 @@ def trick_text(game, next=True):
     if next:
         player = game.activePlayer
         text += '\n[{}](tg://user?id={}), '.format(player.name, player.id)
-        text += 'you turn to play a card!'
+        text += 'your turn to play a card!'
     return text
 
 def start_game(update, context):
     chatId = update.effective_chat.id
     update_join_message(chatId, buttons=False)
-    context.bot.send_message(chat_id=chatId, text='Game starts now!')
+    delayQueues[chatId](
+        context.bot.send_message,
+        chat_id=chatId, 
+        text='Game starts now!'
+    )
     game = Game.games[chatId]
     game.start()
     for player in game.players:
@@ -272,12 +274,13 @@ def start_game(update, context):
             player.handMessage = context.bot.send_message(
                 chat_id=player.id, 
                 text='Your Hand:\n'+translate_hand(player.hand)
-            ).result()
+            )
     request_bid(chatId, context)
 
 def request_bid(chatId, context):
     if chatId not in Game.games:    # everyone passed, game stopped
-        context.bot.send_message(
+        delayQueues[chatId](
+            context.bot.send_message,
             chat_id=chatId, 
             text='Everyone passed! Game ended.'
         )
@@ -289,7 +292,8 @@ def request_bid(chatId, context):
         return
     if player.isAI:
         bid = player.make_bid()
-        context.bot.send_message(
+        delayQueues[chatId](
+            context.bot.send_message,
             chat_id=chatId, 
             text='{}: {}'.format(player.name, translate_bid(bid))
         )
@@ -302,7 +306,8 @@ def request_bid(chatId, context):
         text += 'Bidder: {}\n'.format(game.declarer.name)
     text += '[{}](tg://user?id={}), '.format(player.name, player.id)
     text += 'your turn to bid!'
-    context.bot.send_message(
+    delayQueues[chatId](
+        context.bot.send_message,
         chat_id=chatId,
         text=text, 
         parse_mode=ParseMode.MARKDOWN
@@ -315,7 +320,8 @@ def request_partner(chatId, context):
         player.call_partner()
         request_card(chatId, context)
         return
-    context.bot.send_message(
+    delayQueues[chatId](
+        context.bot.send_message,
         chat_id=chatId, 
         text='[{}](tg://user?id={}), '.format(player.name, player.id)+
             'you won the bid! Choose your partner\'s card!',
@@ -329,7 +335,8 @@ def request_card(chatId, context):
         return
     player = game.activePlayer
     if player is game.players[0]:
-        context.bot.send_message(
+        delayQueues[chatId](
+            context.bot.send_message,
             chat_id=chatId, 
             text=trick_text(game), 
             parse_mode=ParseMode.MARKDOWN
@@ -337,7 +344,8 @@ def request_card(chatId, context):
     if player.isAI:
         card = player.play_card()
         if card:
-            context.bot.send_message(
+            delayQueues[chatId](
+                context.bot.send_message,
                 chat_id=chatId,
                 text=trick_text(game, next=player is not game.players[-1]),
                 parse_mode=ParseMode.MARKDOWN
@@ -352,7 +360,8 @@ def conclude_game(chatId, context):
     for winner in game.winners:
         text += '[{}](tg://user?id={})\n'.format(winner.name, winner.id)
     text += 'You won the game!'
-    context.bot.send_message(
+    delayQueues[chatId](
+        context.bot.send_message,
         chat_id=chatId, 
         text=text, 
         parse_mode=ParseMode.MARKDOWN
@@ -419,7 +428,8 @@ def action(update, context):
     if game.phase == Game.BID_PHASE:
         bid = result.result_id
         if not player.make_bid(bid):
-            context.bot.send_message(
+            delayQueues[chatId](
+                context.bot.send_message,
                 chat_id=chatId, 
                 text='Not your turn or invalid bid!'
             )
@@ -427,7 +437,8 @@ def action(update, context):
     elif game.phase == Game.CALL_PHASE:
         card = result.result_id
         if not player.call_partner(card):
-            context.bot.send_message(
+            delayQueues[chatId](
+                context.bot.send_message,
                 chat_id=chatId, 
                 text='Not your turn or invalid card!'
             )
@@ -438,13 +449,18 @@ def action(update, context):
     elif game.phase == Game.PLAY_PHASE:
         card = result.result_id
         if not player.play_card(card):
-            context.bot.send_message(
+            delayQueues[chatId](
+                context.bot.send_message,
                 chat_id=chatId, 
                 text='Not your turn or invalid card!'
             )
         else:
-            player.handMessage.edit_text(translate_hand(player.hand))
-            context.bot.send_message(
+            delayQueues[chatId](
+                player.handMessage.edit_text,
+                translate_hand(player.hand)
+            )
+            delayQueues[chatId](
+                context.bot.send_message,
                 chat_id=chatId,
                 text=trick_text(game, next=player is not game.players[-1]),
                 parse_mode=ParseMode.MARKDOWN
@@ -454,38 +470,17 @@ def action(update, context):
             request_card(chatId, context)
 
 def error(update, context):
-    print('\n\nerror(update, context)')
-    logger.warning('Update "%s" caused error "%s"', update, context.error)
+    logger.warning('\nUpdate "%s" caused error "%s"', update, context.error)
 
 
 if __name__ == '__main__':
     # TODO pass token with os config vars for security
     #token = os.environ['TELEGRAM_TOKEN']
     token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
-    # all 29 messages/1017 milliseconds would work like a charm - ptb wiki
-    q = messagequeue.MessageQueue(
-        # TODO change back to 29/1017
-        all_burst_limit=19, 
-        all_time_limit_ms=61020,
-        # TODO change if needed
-        group_burst_limit=19,
-        group_time_limit_ms=120000, # feels like not working
-    )
-    request = Request(con_pool_size=8)
-    mqBot = MQBot(token, request=request, mqueue=q)
-    # TODO rm aft sure no need this
-    '''
     updater = Updater(
         token=token, 
         use_context=True, 
         request_kwargs={'read_timeout': 20, 'connect_timeout': 20}
-    )
-    '''
-    updater = Updater(
-        bot=mqBot, 
-        use_context=True, 
-        # TODO edit is needed
-        request_kwargs={'read_timeout': 62, 'connect_timeout': 62}
     )
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

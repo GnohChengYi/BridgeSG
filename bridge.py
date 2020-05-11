@@ -31,7 +31,6 @@ class Game:
     
     def __init__(self, id):
         self.id = id
-        self.joinMessage = None
         self.players = []   # leading player of current trick always first
         self.phase = Game.JOIN_PHASE
         self.activePlayer = None
