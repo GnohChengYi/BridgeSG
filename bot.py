@@ -1,5 +1,4 @@
 # TODO
-# no wash
 # condi
 
 import logging
@@ -7,13 +6,14 @@ import os
 import time
 import telegram.bot
 from telegram.ext import CallbackQueryHandler, ChosenInlineResultHandler, \
-    CommandHandler, DelayQueue, InlineQueryHandler, messagequeue, Updater
+    CommandHandler, DelayQueue, InlineQueryHandler, Updater
 from telegram.utils.request import Request
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, \
     InlineQueryResultArticle, InputTextMessageContent, ParseMode, TelegramError
 from bridge import Game, Player
 
 
+# (12 May) DelayQueues run forever. Might have problem in the future.
 delayQueues = {}    # {chatId:DelayQueue}
 
 

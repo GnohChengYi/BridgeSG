@@ -2,6 +2,29 @@
 from uuid import uuid4
 from random import choice, shuffle
 
+
+def get_HCP(hand):
+    '''Returns High Card Points. A=4, K=3, Q=2, J=1.'''
+    HCP = 0
+    numPoints = {'A':4, 'K':3, 'Q':2, 'J':1}
+    for card in hand:
+        num = card[1]
+        if num in numPoints:
+            HCP += numPoints[num]
+    return HCP
+
+def get_TP(hand):
+    '''Returns Total Points = HCP + length points.'''
+    TP = get_HCP(hand)
+    suitCards = {suit:[] for suit in Game.suits}
+    for card in hand:
+        suitCards[card[0]].append(card)
+    for suit in suitCards:
+        if len(suitCards[suit]) > 4:
+            TP += len(suitCards[suit]) - 4
+    return TP
+
+
 class Game:
     # {chatId:Game}, store all games
     games = {}
@@ -91,12 +114,16 @@ class Game:
     def start(self):
         self.phase = Game.BID_PHASE
         dealDeck = list(Game.deck)
-        shuffle(dealDeck)
-        key = lambda x: (x[0], 'AKQJT98765432'.index(x[1]))
-        self.players[0].hand = sorted(dealDeck[:13], key=key)
-        self.players[1].hand = sorted(dealDeck[13:26], key=key)
-        self.players[2].hand = sorted(dealDeck[26:39], key=key)
-        self.players[3].hand = sorted(dealDeck[39:], key=key)
+        while True:
+            shuffle(dealDeck)
+            hands = [dealDeck[i:i+13] for i in (0, 13, 26, 39)]
+            for hand in hands:
+                if get_TP(hand) < 4:
+                    continue
+            key = lambda x: (x[0], Game.numbers.index(x[1]))
+            for i in range(4):        
+                self.players[i].hand = sorted(hands[i], key=key)
+            break
         self.activePlayer = self.players[0]
     
     def stop(self):
