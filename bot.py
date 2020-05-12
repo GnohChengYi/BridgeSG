@@ -83,6 +83,9 @@ def stop(update, context):
         chat_id=chatId, 
         text='Game stopped.'
     )
+    for player in game.players:
+        if player.handMessage:
+            delayQueues[chatId](player.handMessage.edit_text, 'Game stopped.')
     del game
 
 def join(update, context):
@@ -366,6 +369,9 @@ def conclude_game(chatId, context):
         text=text, 
         parse_mode=ParseMode.MARKDOWN
     )
+    for player in game.players:
+        if player.handMessage:
+            delayQueues[chatId](player.handMessage.edit_text, 'Game ended.')
     game.stop()
 
 def inline_action(update, context):
