@@ -95,8 +95,12 @@ class Game:
     def add_AI(self):
         if self.full():
             return False
-        id = uuid4()
-        name = 'AI ' + str(id)[:5]
+        # make sure no repeated ids
+        while True:
+            id = str(uuid4())[:8]
+            if id not in Player.players:
+                break
+        name = 'AI ' + id[:5]
         player = Player(id, name, isAI=True)
         self.players.append(player)
         player.game = self
@@ -117,9 +121,13 @@ class Game:
         while True:
             shuffle(dealDeck)
             hands = [dealDeck[i:i+13] for i in (0, 13, 26, 39)]
+            redeal = False
             for hand in hands:
                 if get_TP(hand) < 4:
-                    continue
+                    redeal = True
+                    break
+            if redeal:
+                continue
             key = lambda x: (x[0], Game.numbers.index(x[1]))
             for i in range(4):        
                 self.players[i].hand = sorted(hands[i], key=key)
@@ -127,10 +135,12 @@ class Game:
         self.activePlayer = self.players[0]
     
     def stop(self):
+        self.phase = Game.END_PHASE
         for player in self.players:
-            del Player.players[player.id]
-            del player
-        del Game.games[self.id]
+            if player.id in Player.players:
+                del Player.players[player.id]
+        if self.id in Game.games:
+            del Game.games[self.id]
     
     def next(self):
         self.activePlayer = \
@@ -214,6 +224,7 @@ class Player:
         self.handMessage = None
         self.partner = None
         self.tricks = 0
+        self.maxBid = None
         Player.players[id] = self
     
     def make_bid(self, bid=Game.PASS):
@@ -222,8 +233,7 @@ class Player:
             return
         validBids = game.valid_bids()
         if self.isAI:
-            # TODO code AI logic
-            bid = choice(validBids[:2])
+            bid = self.choose_bid_AI(validBids)
         if bid not in validBids:
             return
         if bid!=Game.PASS:
@@ -277,6 +287,42 @@ class Player:
             game.trumpBroken = True
         return card
     
+    def choose_bid_AI(self, validBids):
+        if not self.maxBid:
+            HCP = get_HCP(self.hand)
+            if HCP < 11:
+                self.maxBid = Game.PASS
+                return Game.PASS
+            suitLengths = {
+                suit : len([card for card in self.hand if card[0]==suit]) 
+                for suit in Game.suits
+            }   # {suit:length}
+            maxLength = max(suitLengths.values())
+            if maxLength < 5:   # try no trump
+                minLength = min(suitLengths.values())
+                if minLength < 2:
+                    self.maxBid = Game.PASS
+                    return Game.PASS
+                aceCount = len([card for card in self.hand if card[1]=='A'])
+                # TODO may need adjust
+                maxBidNum = min(HCP//8 + aceCount//4, 7)
+                self.maxBid = str(maxBidNum) + 'N'
+            else:   # find preferred trump
+                # many suits longest -> take highest suit (S>H>D>C)
+                for suit in Game.suits[::-1]:
+                    if suitLengths[suit]==maxLength:
+                        preferredSuit = suit
+                        break
+                # TODO may need adjust
+                maxBidNum = min(HCP//8 + maxLength//4, 7)
+                self.maxBid = str(maxBidNum) + preferredSuit
+        if self.maxBid==Game.PASS or self.maxBid not in validBids:
+            return Game.PASS
+        # bid lowest preferred
+        for bid in validBids:
+            if bid[1]==self.maxBid[1]:
+                return bid
+    
     def choose_card_AI(self, validCards):
         '''
         game = self.game
@@ -317,9 +363,42 @@ class Player:
             result = self.hand
             if game.trump and not game.trumpBroken:
                 result = list(filter(lambda card:card[0]!=game.trump, result))
-            return result
+            return result if len(result)>0 else self.hand
         leadingSuit = leadingCard[0]
         result = [card for card in self.hand if card[0]==leadingSuit]
-        if len(result)==0:  # can break trump now
-            return self.hand
-        return result
+        return result if len(result)>0 else self.hand
+
+
+def trial():
+    game = Game(0)
+    for i in range(4):
+        game.add_AI()
+    game.start()
+    while game.phase == Game.BID_PHASE:
+        game.activePlayer.make_bid()
+    if not game.declarer:  # everyone passed, game stopped 
+        #print('Everyone passed.')
+        del game
+        return
+    game.declarer.call_partner()
+    #print(game.declarer.hand)
+    while game.phase != Game.END_PHASE:
+        for i in range(4):
+            game.activePlayer.play_card()
+        game.complete_trick()
+    #print(game.bid, game.totalTricks, game.declarer in game.winners)
+    game.stop()
+    if game.declarer in game.winners:
+        del game
+        return True
+
+def run_trials(num):
+    contractAchieved = 0
+    for i in range(num):
+        if trial():
+            contractAchieved += 1
+    print('{:.3f}'.format(contractAchieved/num))
+
+
+if __name__=='__main__':
+    run_trials(1000)
