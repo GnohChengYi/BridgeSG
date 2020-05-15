@@ -123,7 +123,7 @@ class Game:
             hands = [dealDeck[i:i+13] for i in (0, 13, 26, 39)]
             redeal = False
             for hand in hands:
-                if get_TP(hand) < 4:
+                if get_TP(hand) < 7:    # no condi hand
                     redeal = True
                     break
             if redeal:
@@ -215,9 +215,12 @@ class Player:
     # {userId:Player}, store all players
     players = {}
     
-    def __init__(self, id, name, isAI=False):
+    # TODO revert back aft using genetic algo to get m,c in y=mx+c
+    def __init__(self, id, name, isAI=False, m=0.29, c=-1.14):
         self.id = id
         self.name = name
+        self.m = m
+        self.c = c
         self.game = None
         self.isAI = isAI
         self.hand = []
@@ -290,32 +293,28 @@ class Player:
     def choose_bid_AI(self, validBids):
         if not self.maxBid:
             HCP = get_HCP(self.hand)
-            if HCP < 11:
-                self.maxBid = Game.PASS
-                return Game.PASS
             suitLengths = {
                 suit : len([card for card in self.hand if card[0]==suit]) 
                 for suit in Game.suits
             }   # {suit:length}
             maxLength = max(suitLengths.values())
-            if maxLength < 5:   # try no trump
-                minLength = min(suitLengths.values())
-                if minLength < 2:
-                    self.maxBid = Game.PASS
-                    return Game.PASS
-                aceCount = len([card for card in self.hand if card[1]=='A'])
-                # TODO may need adjust
-                maxBidNum = min(HCP//8 + aceCount//4, 7)
-                self.maxBid = str(maxBidNum) + 'N'
+            minLength = min(suitLengths.values())
+            if maxLength <= 4 and minLength >= 2:   # try no trump
+                maxBidNum = round(0.25 * HCP - 1.75)
+                maxBidNum = min(maxBidNum, 7)
+                self.maxBid = str(maxBidNum) + 'N' if maxBidNum > 0 else Game.PASS
             else:   # find preferred trump
                 # many suits longest -> take highest suit (S>H>D>C)
                 for suit in Game.suits[::-1]:
                     if suitLengths[suit]==maxLength:
                         preferredSuit = suit
                         break
-                # TODO may need adjust
-                maxBidNum = min(HCP//8 + maxLength//4, 7)
-                self.maxBid = str(maxBidNum) + preferredSuit
+                maxBidNum = round(0.23 * HCP + 0.70 * maxLength - 4.39)
+                maxBidNum = min(maxBidNum, 7)
+                if maxBidNum > 0:
+                    self.maxBid = str(maxBidNum) + preferredSuit
+                else:
+                    self.maxBid = Game.PASS
         if self.maxBid==Game.PASS or self.maxBid not in validBids:
             return Game.PASS
         # bid lowest preferred
@@ -377,7 +376,6 @@ def trial():
     while game.phase == Game.BID_PHASE:
         game.activePlayer.make_bid()
     if not game.declarer:  # everyone passed, game stopped 
-        #print('Everyone passed.')
         del game
         return
     game.declarer.call_partner()
@@ -388,17 +386,19 @@ def trial():
         game.complete_trick()
     #print(game.bid, game.totalTricks, game.declarer in game.winners)
     game.stop()
-    if game.declarer in game.winners:
+    if abs(game.contract - game.totalTricks) <= 2:
         del game
         return True
+    del game
+    return False
 
 def run_trials(num):
     contractAchieved = 0
     for i in range(num):
         if trial():
             contractAchieved += 1
-    print('{:.3f}'.format(contractAchieved/num))
+    print('contract +- 2 rate: {:.3f}'.format(contractAchieved/num))
 
 
 if __name__=='__main__':
-    run_trials(1000)
+    run_trials(10000)
