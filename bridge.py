@@ -59,7 +59,7 @@ class Game:
         self.activePlayer = None
         self.declarer = None
         self.bid = Game.PASS   # 1N, 2S, 3H, 4D, 5C, etc.
-        self.trump = '' # N, S, H, D, C
+        self.trump = '' # ''=N, S, H, D, C
         self.contract = 0   # 7, 8, 9, 10, 11, 12, 13
         self.partnerCard = None
         # list of cards, corresponds to current order of players
@@ -164,25 +164,6 @@ class Game:
         index = self.players.index(self.activePlayer)
         self.players = self.players[index:] + self.players[:index]
     
-    '''
-    def winning_card(self):
-        if self.currentTrick[0]==None:
-            return
-        suit = self.currentTrick[0][0]
-        if self.trump in self.currentTrick:
-            suit = self.trump
-        cardsOfSuit = [c for c in self.currentTrick if c and c[0]==suit]
-        cardsOfSuit.sort(key=lambda card:Game.numbers.index(card[1]))
-        return cardsOfSuit[0]
-    
-    def highest_card(self, cards):
-        # don't care about leading suit
-        trump = self.trump
-        suit = self.currentTrick[0][0]
-        if card1[0]==trump and card2[0]==trump:
-            return
-    '''
-    
     def complete_trick(self):
         if not self.trump or \
             self.trump not in [card[0] for card in self.currentTrick]:
@@ -255,9 +236,9 @@ class Player:
         if self is not game.activePlayer:
             return
         if self.isAI:
-            # TODO code AI logic
-            card = choice(Game.deck)
+            card = self.choose_partner_AI()
         if card not in Game.deck:
+            print('ERROR: Called card {} not in deck!'.format(card))
             return
         game.partnerCard = card
         for player in self.game.players:
@@ -322,6 +303,21 @@ class Player:
             if bid[1]==self.maxBid[1]:
                 return bid
     
+    def choose_partner_AI(self):
+        game = self.game
+        trump = game.bid[1] # start_play not called yet so game.trump not set yet
+        if trump != 'N':
+            aceTrump = trump + 'A'
+            if aceTrump not in self.hand:
+                return aceTrump
+            kingTrump = trump + 'K'
+            if kingTrump not in self.hand:
+                return kingTrump
+        for card in ('SA', 'HA', 'DA', 'CA', 'SK', 'HK', 'DK', 'CK'):
+            if card not in self.hand:
+                return card
+        return choice(Game.deck)
+
     def choose_card_AI(self, validCards):
         '''
         game = self.game
