@@ -24,6 +24,21 @@ def get_TP(hand):
             TP += len(suitCards[suit]) - 4
     return TP
 
+def compare_cards(card1, card2, leadingSuit, trump):
+    '''Returns 1 if card1>card2, -1 if card1<card2, else 0.'''
+    numbers = Game.numbers
+    if card1[0]==card2[0]: # same suit
+        if numbers.index(card2[1]) < numbers.index(card1[1]):
+            return -1
+        if numbers.index(card1[1]) < numbers.index(card2[1]):
+            return 1
+        return 0
+    if card1[0]==trump and card2[0]!=trump or card1[0]==leadingSuit:
+        return 1
+    if card1[0]!=trump and card2[0]==trump or card2[0]==leadingSuit:
+        return -1
+    # both cards not leading suit and not trump
+    return 0
 
 class Game:
     # {chatId:Game}, store all games
@@ -164,20 +179,32 @@ class Game:
         index = self.players.index(self.activePlayer)
         self.players = self.players[index:] + self.players[:index]
     
+    def winning_index(self):
+        if not self.currentTrick[0]:
+            return
+        numbers = Game.numbers
+        trick = self.currentTrick
+        leadingSuit = trick[0][0]
+        trump = self.trump
+        winIndex = 0
+        for i in range(len(trick)):
+            if not trick[i]:
+                break
+            card1 = trick[winIndex]
+            card2 = trick[i]
+            if card1[0]==card2[0]: # same suit
+                if numbers.index(card2[1]) < numbers.index(card1[1]):
+                    winIndex = i
+            elif card1[0]!=trump and card2[0]==trump or card2[0]==leadingSuit:
+                winIndex = i
+        return winIndex
+    
     def complete_trick(self):
-        if not self.trump or \
-            self.trump not in [card[0] for card in self.currentTrick]:
-            suit = self.currentTrick[0][0]
-        else:
-            suit = self.trump
-        cardsOfSuit = [card for card in self.currentTrick if card[0]==suit]
-        cardsOfSuit.sort(key=lambda card:Game.numbers.index(card[1]))
-        highestCard = cardsOfSuit[0]
-        index = self.currentTrick.index(highestCard)
-        winner = self.players[index]
+        winIndex = self.winning_index()
+        winner = self.players[winIndex]
         winner.tricks += 1
         self.activePlayer = winner
-        self.players = self.players[index:] + self.players[:index]
+        self.players = self.players[winIndex:] + self.players[:winIndex]
         self.currentTrick = [None]*4
         if len(self.activePlayer.hand) == 0:    # next player no more cards=end
             self.conclude()
@@ -196,12 +223,9 @@ class Player:
     # {userId:Player}, store all players
     players = {}
     
-    # TODO revert back aft using genetic algo to get m,c in y=mx+c
-    def __init__(self, id, name, isAI=False, m=0.29, c=-1.14):
+    def __init__(self, id, name, isAI=False):
         self.id = id
         self.name = name
-        self.m = m
-        self.c = c
         self.game = None
         self.isAI = isAI
         self.hand = []
@@ -319,37 +343,19 @@ class Player:
         return choice(Game.deck)
 
     def choose_card_AI(self, validCards):
-        '''
         game = self.game
-        trick = game.currentTrick
-        if not trick[0]:    # self lead
+        # TODO for now if can win, play hghest, otw play lowest. Improve later.
+        winIndex = game.winning_index()
+        if winIndex==None:  # self is leading player
             return choice(validCards)
-        trump = game.trump
-        winningCard = game.winning_card()
-        trumps = {card for card in validCards if card[0]==trump}
-        nonTrumps = set(validCards) - trumps
-        if len(trumps)>0 and 
-        
-        validSuits = {card[0] for card in validCards}
-        if trump in validSuits:
-            highCardCandidates = [card for card in validCards if card[0]==trump]
-            highCardCandidates.sort(key=lambda card:Game.numbers.index(card[1]))
-            highCard = highCardCandidates[0]
-        
-        
-        if trump and trump not in trick:
-            suit = trick[0][0]
-            cardsOfSuit = [card for card in trick if card and card[0]==suit]
-        if canWin:
-            # play high card
-            # TODO
-            pass
-        else:
-            # play low card
-            # TODO
-            pass
-        ''' 
-        return choice(validCards)
+        winCard = game.currentTrick[winIndex]
+        leadingSuit = game.currentTrick[0][0]
+        for card in validCards:
+            if compare_cards(card, winCard, leadingSuit, game.trump)==1:
+                # validCards sorted when dealing. Returns highest card.
+                return card
+        # validCards sorted -> last card should be smallest
+        return validCards[-1]
 
     def valid_cards(self):
         leadingCard = self.game.currentTrick[0]
@@ -375,14 +381,12 @@ def trial():
         del game
         return
     game.declarer.call_partner()
-    #print(game.declarer.hand)
     while game.phase != Game.END_PHASE:
         for i in range(4):
             game.activePlayer.play_card()
         game.complete_trick()
-    #print(game.bid, game.totalTricks, game.declarer in game.winners)
     game.stop()
-    if abs(game.contract - game.totalTricks) <= 2:
+    if abs(game.contract - game.totalTricks) <= 1:
         del game
         return True
     del game
@@ -393,8 +397,8 @@ def run_trials(num):
     for i in range(num):
         if trial():
             contractAchieved += 1
-    print('contract +- 2 rate: {:.3f}'.format(contractAchieved/num))
+    print('contract +- 1 rate: {:.3f}'.format(contractAchieved/num))
 
 
 if __name__=='__main__':
-    run_trials(10000)
+    run_trials(1000)
