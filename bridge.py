@@ -195,7 +195,9 @@ class Game:
             if card1[0]==card2[0]: # same suit
                 if numbers.index(card2[1]) < numbers.index(card1[1]):
                     winIndex = i
-            elif card1[0]!=trump and card2[0]==trump or card2[0]==leadingSuit:
+            elif card1[0]!=trump and card2[0]==trump:
+                winIndex = i
+            elif  card1[0] != trump and card2[0]==leadingSuit:
                 winIndex = i
         return winIndex
     
@@ -232,7 +234,9 @@ class Player:
         self.handMessage = None
         self.partner = None
         self.tricks = 0
-        self.maxBid = None
+        if isAI:
+            self.maxBid = None
+            self.enemies = []
         Player.players[id] = self
     
     def make_bid(self, bid=Game.PASS):
@@ -265,13 +269,18 @@ class Player:
             print('ERROR: Called card {} not in deck!'.format(card))
             return
         game.partnerCard = card
-        for player in self.game.players:
+        for player in game.players:
+            if player.isAI:
+                # initialise enemies for AI player
+                player.enemies = [p for p in game.players if p is not player]
             if card in player.hand:
                 # only care who is declarer's partner
                 # play whole game and see
                 # whether declarer and partner (possibly self) fulfill contract
                 self.partner = player
-                break
+                # remove declarer from enemies if player is partner
+                if player.isAI and self in player.enemies:
+                    player.enemies.remove(self)
         game.start_play()
         return card
     
@@ -293,6 +302,19 @@ class Player:
             game.next()
         if not game.trumpBroken and card[0]==game.trump:
             game.trumpBroken = True
+        # self played partner card -> update AI enemies
+        if card==game.partnerCard:
+            for player in game.players:
+                if not player.isAI or player is self:
+                    # self is partner, already know who are enemies
+                    continue
+                if player is game.declarer:
+                    if self in player.enemies:
+                        # declarer remove self (partner) from enemies
+                        player.enemies.remove(self)
+                else:
+                    # non-declaring side update enemies, self is declarer's partner
+                    player.enemies = [game.declarer, self]
         return card
     
     def choose_bid_AI(self, validBids):
@@ -346,15 +368,20 @@ class Player:
         game = self.game
         # TODO for now if can win, play hghest, otw play lowest. Improve later.
         winIndex = game.winning_index()
-        if winIndex==None:  # self is leading player
+        if winIndex==None:
+            # self is leading player, play random card
             return choice(validCards)
+        winPlayer = game.players[winIndex]
+        if winPlayer not in self.enemies:
+               # partner winning -> play lowest card
+            return validCards[-1]
         winCard = game.currentTrick[winIndex]
         leadingSuit = game.currentTrick[0][0]
         for card in validCards:
             if compare_cards(card, winCard, leadingSuit, game.trump)==1:
                 # validCards sorted when dealing. Returns highest card.
                 return card
-        # validCards sorted -> last card should be smallest
+        # cannot win -> play lowest card
         return validCards[-1]
 
     def valid_cards(self):
@@ -386,7 +413,7 @@ def trial():
             game.activePlayer.play_card()
         game.complete_trick()
     game.stop()
-    if abs(game.contract - game.totalTricks) <= 1:
+    if game.totalTricks - game.contract >= -1:
         del game
         return True
     del game
@@ -397,7 +424,7 @@ def run_trials(num):
     for i in range(num):
         if trial():
             contractAchieved += 1
-    print('contract +- 1 rate: {:.3f}'.format(contractAchieved/num))
+    print('declarer win/almost win rate: {:.3f}'.format(contractAchieved/num))
 
 
 if __name__=='__main__':
