@@ -1,6 +1,3 @@
-# TODO solve bug: someone trump but play high card instead of low card
-# TODO solve bug: play lowest card but play trump (not supposed to play trump)
-
 # handles everything in a bridge game
 from uuid import uuid4
 from random import choice, shuffle
@@ -393,10 +390,19 @@ class Player:
             return lowest_card(validCards, game.trump)
         winCard = game.currentTrick[winIndex]
         leadingSuit = game.currentTrick[0][0]
+        lowestWinningCard = None
         for card in validCards:
             if compare_cards(card, winCard, leadingSuit, game.trump)==1:
-                # validCards sorted when dealing. Returns highest card.
-                return card
+                # validCards sorted when dealing. 
+                if self is not game.players[-1]:
+                    # Plays highest card to win if not last player.
+                    return card
+                else:
+                    # Last player. Track lowest card that can win.
+                    lowestWinningCard = card
+        if lowestWinningCard:
+            # Last player. Plays lowest card that can win.
+            return lowestWinningCard
         # cannot win -> play lowest card
         return lowest_card(validCards, game.trump)
 
@@ -429,7 +435,7 @@ def trial():
             game.activePlayer.play_card()
         game.complete_trick()
     game.stop()
-    if game.totalTricks - game.contract >= -1:
+    if game.totalTricks - game.contract >= 1:
         del game
         return True
     del game
