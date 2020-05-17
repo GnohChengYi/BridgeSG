@@ -1,3 +1,6 @@
+# TODO solve bug: someone trump but play high card instead of low card
+# TODO solve bug: play lowest card but play trump (not supposed to play trump)
+
 # handles everything in a bridge game
 from uuid import uuid4
 from random import choice, shuffle
@@ -33,12 +36,22 @@ def compare_cards(card1, card2, leadingSuit, trump):
         if numbers.index(card1[1]) < numbers.index(card2[1]):
             return 1
         return 0
-    if card1[0]==trump and card2[0]!=trump or card1[0]==leadingSuit:
+    if (card1[0]==trump or card1[0]==leadingSuit) and card2[0]!=trump:
         return 1
-    if card1[0]!=trump and card2[0]==trump or card2[0]==leadingSuit:
+    if (card2[0]==trump or card2[0]==leadingSuit) and card1[0]!=trump:
         return -1
     # both cards not leading suit and not trump
     return 0
+
+def lowest_card(cards, trump):
+    '''Returns card with lowest number that is not trump.'''
+    nonTrumps = [card for card in cards if card[0]!=trump]
+    if not nonTrumps:
+        # all trump, sorted after dealt, last card is lowest
+        return cards[-1]
+    nonTrumps.sort(key=lambda card: Game.numbers.index(card[1]))
+    return nonTrumps[-1]
+    
 
 class Game:
     # {chatId:Game}, store all games
@@ -178,6 +191,9 @@ class Game:
         # reorder players list so that first player leads
         index = self.players.index(self.activePlayer)
         self.players = self.players[index:] + self.players[:index]
+        #print('declarer:', self.declarer.name)
+        #print('bid:', self.bid)
+        #print('partner:', self.partnerCard)
     
     def winning_index(self):
         if not self.currentTrick[0]:
@@ -315,6 +331,7 @@ class Player:
                 else:
                     # non-declaring side update enemies, self is declarer's partner
                     player.enemies = [game.declarer, self]
+        #print(self.name, self.hand, card)
         return card
     
     def choose_bid_AI(self, validBids):
@@ -366,15 +383,14 @@ class Player:
 
     def choose_card_AI(self, validCards):
         game = self.game
-        # TODO for now if can win, play hghest, otw play lowest. Improve later.
         winIndex = game.winning_index()
         if winIndex==None:
             # self is leading player, play random card
             return choice(validCards)
         winPlayer = game.players[winIndex]
         if winPlayer not in self.enemies:
-               # partner winning -> play lowest card
-            return validCards[-1]
+            # partner winning -> play lowest card
+            return lowest_card(validCards, game.trump)
         winCard = game.currentTrick[winIndex]
         leadingSuit = game.currentTrick[0][0]
         for card in validCards:
@@ -382,7 +398,7 @@ class Player:
                 # validCards sorted when dealing. Returns highest card.
                 return card
         # cannot win -> play lowest card
-        return validCards[-1]
+        return lowest_card(validCards, game.trump)
 
     def valid_cards(self):
         leadingCard = self.game.currentTrick[0]
@@ -428,4 +444,4 @@ def run_trials(num):
 
 
 if __name__=='__main__':
-    run_trials(1000)
+    run_trials(10000)
