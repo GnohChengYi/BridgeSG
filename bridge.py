@@ -358,6 +358,9 @@ class Player:
                     self.maxBid = Game.PASS
         if self.maxBid==Game.PASS or self.maxBid not in validBids:
             return Game.PASS
+        # current bid has preferred suit/NT
+        if self.game.bid[1]==self.maxBid[1]:
+            return Game.PASS
         # bid lowest preferred
         for bid in validBids:
             if bid[1]==self.maxBid[1]:
