@@ -1,5 +1,4 @@
-# TODO
-# condi
+# TODO /help instructions
 
 import logging
 import os
@@ -88,6 +87,30 @@ def stop(update, context):
             delayQueues[chatId](player.handMessage.edit_text, 'Game stopped.')
     del game
 
+def help(update, context):
+    chatId = update.effective_chat.id
+    if chatId not in delayQueues:
+        # Official limit is 20 msg/1 min. Make it stricter here.
+        delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
+    text = '[Floating bridge](https://en.wikipedia.org/wiki/Singaporean_bridge)\n'
+    text += 'Start game: /start\n'
+    text += 'Stop game: /stop\n'
+    text += 'Show this: /help\n'
+    text += 'For 1st timers, pm me @{} '.format(context.bot.username)
+    text += 'so that I can pm you.\n'
+    text += 'To bid, call partner, or play card, type: \n'
+    text += '@{} hi\n'.format(context.bot.username)
+    text += 'Select bids/cards shown in a while to make an action.\n'
+    text += 'I can only send <20 messages/minute'
+    text += ", so please wait for 1 minute if I am not responding.\n\n"
+    text += 'Good luck and have fun!'
+    delayQueues[chatId](
+        context.bot.send_message,
+        chat_id=chatId, 
+        text=text,
+        parse_mode=ParseMode.MARKDOWN
+    )
+
 def join(update, context):
     chatId = update.effective_chat.id
     query = update.callback_query 
@@ -97,7 +120,7 @@ def join(update, context):
         return
     joinSuccess = game.add_human(user.id, user.first_name)
     # slim possibility of failure due to full of players
-    # (checked for fullness above and in game.add_humen(...))
+    # (checked for fullness above and in game.add_human(...))
     if not joinSuccess:
         delayQueues[chatId](
             context.bot.send_message,
@@ -114,7 +137,8 @@ def join(update, context):
             context.bot.send_message,
             chat_id=chatId,
             text = '[{}](tg://user?id={}), '.format(user.first_name, user.id)+
-            'please initiate a conversation with me @MYSGBridgeBot!',
+                'please initiate a conversation with me '+
+                '@{} !'.format(context.bot.username),
             parse_mode=ParseMode.MARKDOWN
         )
         # undo the join
@@ -396,8 +420,7 @@ def inline_action(update, context):
                 thumb_url=thumb_url_bid(bid)
             ))
     elif game.phase == Game.CALL_PHASE:
-        # max 50 queryresults but 52 cards -> for now don't allow self-calling
-        # TODO use query to search for card
+        # max 50 queryresults but 52 cards -> don't allow self-calling
         for card in Game.deck:
             if card not in player.hand:
                 results.append(InlineQueryResultArticle(
@@ -494,8 +517,9 @@ if __name__ == '__main__':
     )
     logger = logging.getLogger(__name__)
     updater.dispatcher.add_handler(CommandHandler('start', start))
-    updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
+    updater.dispatcher.add_handler(CommandHandler('help', help))
+    updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(InlineQueryHandler(inline_action))
     # TODO uncomment add_error_handler for final product
     updater.dispatcher.add_error_handler(error)
