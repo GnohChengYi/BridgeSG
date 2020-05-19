@@ -1,5 +1,3 @@
-# TODO /help instructions
-
 import logging
 import os
 import time
@@ -95,12 +93,12 @@ def help(update, context):
     text = '[Floating bridge](https://en.wikipedia.org/wiki/Singaporean_bridge)\n'
     text += 'Start game: /start\n'
     text += 'Stop game: /stop\n'
-    text += 'Show this: /help\n'
+    text += 'Show this: /help\n\n'
     text += 'For 1st timers, pm me @{} '.format(context.bot.username)
-    text += 'so that I can pm you.\n'
+    text += 'so that I can pm you.\n\n'
     text += 'To bid, call partner, or play card, type: \n'
     text += '@{} hi\n'.format(context.bot.username)
-    text += 'Select bids/cards shown in a while to make an action.\n'
+    text += 'Select bids/cards shown in a while to make an action.\n\n'
     text += 'I can only send <20 messages/minute'
     text += ", so please wait for 1 minute if I am not responding.\n\n"
     text += 'Good luck and have fun!'
@@ -195,14 +193,29 @@ def delete_AI(update, context):
 
 def button(update, context):
     data = update.callback_query.data
-    if data == '1':
-        join(update, context)
-    elif data == '2':
-        quit(update, context)
-    elif data == '3':
-        insert_AI(update, context)
-    elif data == '4':
-        delete_AI(update, context)
+    chatId = update.effective_chat.id
+    try:
+        if data == '1':
+            join(update, context)
+        elif data == '2':
+            quit(update, context)
+        elif data == '3':
+            insert_AI(update, context)
+        elif data == '4':
+            delete_AI(update, context)
+    except KeyError:    # chatId not in Game.games
+        if chatId not in delayQueues:
+            # Official limit is 20 msg/1 min. Make it stricter here.
+            delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
+        text = 'I was restarted recently and lost memory. '
+        text += 'Please ignore the unfinished games. '
+        text += 'Sorry for the inconvenience. '
+        delayQueues[chatId](
+            context.bot.send_message,
+            chat_id=chatId, 
+            text = text
+        )
+        update.callback_query.message.delete()
     update.callback_query.answer()
 
 def translate_bid(bid):
@@ -503,9 +516,7 @@ def error(update, context):
 
 
 if __name__ == '__main__':
-    # TODO pass token with os config vars for security
-    #token = os.environ['TELEGRAM_TOKEN']
-    token = '1026774742:AAFkgzlK3KcyGt8XLzBxu33fqvfdQ-BpaQc'
+    token = os.environ['TELEGRAM_TOKEN']
     updater = Updater(
         token=token, 
         use_context=True, 
