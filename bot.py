@@ -261,27 +261,27 @@ def translate_hand(hand):
 
 def thumb_url_bid(bid):
     if bid==Game.PASS:
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/waving-white-flag_1f3f3.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/81/waving-white-flag_1f3f3.png'
     if bid[1]=='C':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/black-club-suit_2663.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/51/black-club-suit_2663.png'
     if bid[1]=='D':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/black-diamond-suit_2666.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/51/black-diamond-suit_2666.png'
     if bid[1]=='H':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/black-heart-suit_2665.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/237/black-heart-suit_2665.png'
     if bid[1]=='S':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/81/black-spade-suit_2660.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/81/black-spade-suit_2660.png'
     if bid[1]=='N':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/google/241/prohibited_1f6ab.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/google/241/prohibited_1f6ab.png'
 
 def thumb_url_card(card):
     if card[0]=='C':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-club-suit_2663.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/125/black-club-suit_2663.png'
     if card[0]=='D':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-diamond-suit_2666.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/126/black-diamond-suit_2666.png'
     if card[0]=='H':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-heart-suit_2665.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/125/black-heart-suit_2665.png'
     if card[0]=='S':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/160/apple/126/black-spade-suit_2660.png'
+        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/126/black-spade-suit_2660.png'
 
 def trick_text(game, next=True):
     text  = 'Declarer: {}\n'.format(game.declarer.name)
@@ -532,7 +532,6 @@ if __name__ == '__main__':
     updater.dispatcher.add_handler(CommandHandler('help', help))
     updater.dispatcher.add_handler(CallbackQueryHandler(button))
     updater.dispatcher.add_handler(InlineQueryHandler(inline_action))
-    # TODO uncomment add_error_handler for final product
     updater.dispatcher.add_error_handler(error)
     updater.dispatcher.add_handler(ChosenInlineResultHandler(action))
     updater.start_polling()

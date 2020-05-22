@@ -148,7 +148,8 @@ class Game:
             hands = [dealDeck[i:i+13] for i in (0, 13, 26, 39)]
             redeal = False
             for hand in hands:
-                if get_TP(hand) < 7:    # no condi hand
+                # everyone happy(?); don't set too strict otw ~infinite loop
+                if get_TP(hand) < 8:
                     redeal = True
                     break
             if redeal:
