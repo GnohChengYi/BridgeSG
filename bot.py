@@ -96,11 +96,12 @@ def help(update, context):
     text += 'Show this: /help\n\n'
     text += 'For 1st timers, pm me @{} '.format(context.bot.username)
     text += 'so that I can pm you.\n\n'
-    text += 'To bid, call partner, or play card, type: \n'
-    text += '@{} hi\n'.format(context.bot.username)
-    text += 'Select bids/cards shown in a while to make an action.\n\n'
+    text += 'Type \'@{} hi\' to select bid/cards.\n'.format(context.bot.username)
+    text += 'Wait for a while for bids/cards to appear.\n\n'
     text += 'I can only send <20 messages/minute'
-    text += ", so please wait for 1 minute if I am not responding.\n\n"
+    text += ", so please wait for 1 minute if I am not responding.\n"
+    text += "If I did not respond within 1 minute, an error might have occured.\n"
+    text += "Try /start to start a new game.\n\n"
     text += 'Good luck and have fun!'
     delayQueues[chatId](
         context.bot.send_message,
@@ -124,7 +125,7 @@ def join(update, context):
             context.bot.send_message,
             chat_id=chatId,
             text='[{}](tg://user?id={}), '.format(user.first_name, user.id)+
-                'you already joined a game (possibly in another chat).',
+                'quit/stop the game you joined (maybe in other chat) to join this game!',
             parse_mode=ParseMode.MARKDOWN
         )
         return
