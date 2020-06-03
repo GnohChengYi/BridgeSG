@@ -207,15 +207,19 @@ def button(update, context):
         if chatId not in delayQueues:
             # Official limit is 20 msg/1 min. Make it stricter here.
             delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
-        text = 'I was restarted recently and lost memory. '
-        text += 'Please ignore the unfinished games. '
-        text += 'Sorry for the inconvenience. '
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId, 
-            text = text
-        )
-        update.callback_query.message.delete()
+        try:
+            update.callback_query.message.delete()
+            text = 'I was restarted recently and lost memory. '
+            text += 'Please ignore the unfinished games. '
+            text += 'Sorry for the inconvenience. '
+            delayQueues[chatId](
+                context.bot.send_message,
+                chat_id=chatId, 
+                text = text
+            )
+        except TelegramError:
+            # "Message to delete not found": already deleted the message, no need to send lost-memory-message
+            pass
     update.callback_query.answer()
 
 def translate_bid(bid):
