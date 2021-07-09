@@ -1,7 +1,7 @@
 import os
 import psycopg2
 
-print('in testPostgres.py')
+print('\n\n\nin testPostgres.py\n\n\n')
 
 DATABASE_URL = os.environ['DATABASE_URL']
 

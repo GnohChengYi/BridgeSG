@@ -522,8 +522,8 @@ def error(update, context):
 
 
 if __name__ == '__main__':
-    # token = os.environ['TELEGRAM_TOKEN']
-    token = "1026774742:AAFOy4YB4MvWZI-Ug9fI7xv-8S5MbbB-dXk"
+    print("\n\n\nbot.py, main\\n\n\n")
+    token = os.environ['TELEGRAM_TOKEN']
     updater = Updater(
         token=token, 
         use_context=True, 
