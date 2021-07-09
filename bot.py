@@ -522,7 +522,6 @@ def error(update, context):
 
 
 if __name__ == '__main__':
-    print("\n\n\nbot.py, main\\n\n\n")
     token = os.environ['TELEGRAM_TOKEN']
     updater = Updater(
         token=token, 
@@ -534,6 +533,7 @@ if __name__ == '__main__':
         level=logging.INFO
     )
     logger = logging.getLogger(__name__)
+    logger.warning("\n\n\nbot.py, main\\n\n\n")
     updater.dispatcher.add_handler(CommandHandler('start', start))
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
     updater.dispatcher.add_handler(CommandHandler('help', help))
