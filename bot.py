@@ -9,7 +9,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, \
     InlineQueryResultArticle, InputTextMessageContent, ParseMode, TelegramError
 from bridge import Game, Player
 
-# import testPostgres;
+import testPostgres;
 
 # (12 May) DelayQueues run forever. Might have problem in the future.
 delayQueues = {}    # {chatId:DelayQueue}
@@ -109,7 +109,6 @@ def help(update, context):
     text += "If I did not respond within 1 minute, an error might have occured.\n"
     text += "Try /start to start a new game.\n\n"
     text += 'Good luck and have fun!'
-    text += 'DEBUG'  # TODO remove after debug
     delayQueues[chatId](
         context.bot.send_message,
         chat_id=chatId,
@@ -560,7 +559,7 @@ if __name__ == '__main__':
         level=logging.INFO
     )
     logger = logging.getLogger(__name__)
-    logger.warning("\n\n\nbot.py, main\\n\n\n")
+    logger.warning("\n\n\nbot.py, main\n\n\n")
     updater.dispatcher.add_handler(CommandHandler('start', start))
     updater.dispatcher.add_handler(CommandHandler('stop', stop))
     updater.dispatcher.add_handler(CommandHandler('help', help))
