@@ -9,6 +9,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, \
     InlineQueryResultArticle, InputTextMessageContent, ParseMode, TelegramError
 from bridge import Game, Player
 
+import testPostgres;
 
 # (12 May) DelayQueues run forever. Might have problem in the future.
 delayQueues = {}    # {chatId:DelayQueue}
@@ -521,7 +522,8 @@ def error(update, context):
 
 
 if __name__ == '__main__':
-    token = os.environ['TELEGRAM_TOKEN']
+    # token = os.environ['TELEGRAM_TOKEN']
+    token = "1026774742:AAFOy4YB4MvWZI-Ug9fI7xv-8S5MbbB-dXk"
     updater = Updater(
         token=token, 
         use_context=True, 
