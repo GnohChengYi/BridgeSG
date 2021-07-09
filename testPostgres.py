@@ -18,6 +18,6 @@ with conn:
     logger.warning('conn: ' + str(conn))
     with conn.cursor() as curs:
         logger.warning('curs: ' + str(curs))
-        curs.execute(SQL1)
+        # curs.execute(SQL1)
 
 conn.close()
