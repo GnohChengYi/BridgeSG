@@ -1,17 +1,19 @@
 import logging
 import os
 import time
+
 import telegram.bot
-from telegram.ext import CallbackQueryHandler, ChosenInlineResultHandler, \
-    CommandHandler, DelayQueue, InlineQueryHandler, Updater
-from telegram.utils.request import Request
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, \
-    InlineQueryResultArticle, InputTextMessageContent, ParseMode, TelegramError
+from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
+                      InlineQueryResultArticle, InputTextMessageContent,
+                      ParseMode, TelegramError)
+from telegram.ext import (CallbackQueryHandler, ChosenInlineResultHandler,
+                          CommandHandler, DelayQueue, InlineQueryHandler,
+                          Updater)
+
+import testPostgres  # TODO edit after test
 from bridge import Game, Player
 
-import testPostgres;
-
-# (12 May) DelayQueues run forever. Might have problem in the future.
+# (12 May 2020) DelayQueues run forever. Might have problem in the future.
 delayQueues = {}    # {chatId:DelayQueue}
 
 
@@ -549,11 +551,7 @@ def error(update, context):
 
 if __name__ == '__main__':
     token = os.environ['TELEGRAM_TOKEN']
-    updater = Updater(
-        token=token,
-        use_context=True,
-        request_kwargs={'read_timeout': 20, 'connect_timeout': 20}
-    )
+    updater = Updater(token=token)
     logging.basicConfig(
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO
