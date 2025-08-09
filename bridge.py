@@ -3,52 +3,72 @@ from uuid import uuid4
 from random import choice, shuffle
 
 
-def get_HCP(hand):
-    '''Returns High Card Points. A=4, K=3, Q=2, J=1.'''
-    HCP = 0
-    numPoints = {'A':4, 'K':3, 'Q':2, 'J':1}
-    for card in hand:
-        num = card[1]
-        if num in numPoints:
-            HCP += numPoints[num]
-    return HCP
+def calculate_HCP(hand):
+    """Calculate High Card Points (HCP) for a given hand."""
+    numPoints = {'A': 4, 'K': 3, 'Q': 2, 'J': 1}
+    return sum(numPoints.get(card[1], 0) for card in hand)
 
-def get_TP(hand):
-    '''Returns Total Points = HCP + length points.'''
-    TP = get_HCP(hand)
-    suitCards = {suit:[] for suit in Game.suits}
+def group_cards_by_suit(hand):
+    """Group cards by suit and return a dictionary."""
+    suitCards = {suit: [] for suit in Game.suits}
     for card in hand:
         suitCards[card[0]].append(card)
-    for suit in suitCards:
-        if len(suitCards[suit]) > 4:
-            TP += len(suitCards[suit]) - 4
-    return TP
+    return suitCards
 
+calculate_TP = lambda hand: calculate_HCP(hand) + sum(max(0, len(cards) - 4) for cards in group_cards_by_suit(hand).values())
+
+def sort_cards_by_number(cards):
+    """Sort cards by their number based on Game.numbers."""
+    return sorted(cards, key=lambda card: Game.numbers.index(card[1]))
+
+def filter_non_trump_cards(cards, trump):
+    """Filter out non-trump cards from a list of cards."""
+    return [card for card in cards if card[0] != trump]
+
+def lowest_card(cards, trump):
+    """Returns card with the lowest number that is not trump."""
+    nonTrumps = filter_non_trump_cards(cards, trump)
+    if not nonTrumps:
+        return cards[-1]  # All trump, last card is lowest
+    return sort_cards_by_number(nonTrumps)[-1]
+
+# Refactored compare_cards function
 def compare_cards(card1, card2, leadingSuit, trump):
-    '''Returns 1 if card1>card2, -1 if card1<card2, else 0.'''
-    numbers = Game.numbers
-    if card1[0]==card2[0]: # same suit
-        if numbers.index(card2[1]) < numbers.index(card1[1]):
-            return -1
-        if numbers.index(card1[1]) < numbers.index(card2[1]):
-            return 1
-        return 0
-    if (card1[0]==trump or card1[0]==leadingSuit) and card2[0]!=trump:
+    """Compare two cards and determine which is higher."""
+    if card1[0] == card2[0]:  # Same suit
+        return (Game.numbers.index(card2[1]) - Game.numbers.index(card1[1]))
+    if card1[0] in (trump, leadingSuit) and card2[0] not in (trump, leadingSuit):
         return 1
-    if (card2[0]==trump or card2[0]==leadingSuit) and card1[0]!=trump:
+    if card2[0] in (trump, leadingSuit) and card1[0] not in (trump, leadingSuit):
         return -1
     # both cards not leading suit and not trump
     return 0
 
-def lowest_card(cards, trump):
-    '''Returns card with lowest number that is not trump.'''
-    nonTrumps = [card for card in cards if card[0]!=trump]
-    if not nonTrumps:
-        # all trump, sorted after dealt, last card is lowest
-        return cards[-1]
-    nonTrumps.sort(key=lambda card: Game.numbers.index(card[1]))
-    return nonTrumps[-1]
-    
+def deal_hands(deck):
+    """Shuffle and deal hands to players."""
+    shuffle(deck)
+    return [deck[i:i + 13] for i in (0, 13, 26, 39)]
+
+def validate_hands(hands):
+    """Ensure all hands meet the minimum Total Points (TP) requirement."""
+    return all(calculate_TP(hand) >= 8 for hand in hands)
+
+def assign_hands_to_players(players, hands):
+    """Assign sorted hands to players."""
+    for i, hand in enumerate(hands):
+        players[i].hand = sort_cards_by_number(hand)
+
+def start_game(game):
+    """Start the game by dealing cards and setting the active player."""
+    dealDeck = list(Game.deck)
+    while True:
+        hands = deal_hands(dealDeck)
+        if validate_hands(hands):
+            assign_hands_to_players(game.players, hands)
+            break
+    game.activePlayer = game.players[0]
+    game.phase = Game.BID_PHASE
+
 
 class Game:
     # {chatId:Game}, store all games
@@ -140,34 +160,6 @@ class Game:
                 return True
         return False
     
-    def start(self):
-        self.phase = Game.BID_PHASE
-        dealDeck = list(Game.deck)
-        while True:
-            shuffle(dealDeck)
-            hands = [dealDeck[i:i+13] for i in (0, 13, 26, 39)]
-            redeal = False
-            for hand in hands:
-                # everyone happy(?); don't set too strict otw ~infinite loop
-                if get_TP(hand) < 8:
-                    redeal = True
-                    break
-            if redeal:
-                continue
-            key = lambda x: (x[0], Game.numbers.index(x[1]))
-            for i in range(4):        
-                self.players[i].hand = sorted(hands[i], key=key)
-            break
-        self.activePlayer = self.players[0]
-    
-    def stop(self):
-        self.phase = Game.END_PHASE
-        for player in self.players:
-            if player.id in Player.players:
-                del Player.players[player.id]
-        if self.id in Game.games:
-            del Game.games[self.id]
-    
     def next(self):
         self.activePlayer = \
             self.players[(self.players.index(self.activePlayer) + 1) % 4]
@@ -233,6 +225,18 @@ class Game:
         self.winners = {self.declarer, self.declarer.partner}
         if self.totalTricks < self.contract:
             self.winners = set(self.players) - self.winners
+
+    def start(self):
+        start_game(self)
+
+    def stop(self):
+        """Stop the game and clean up resources."""
+        self.phase = Game.END_PHASE
+        for player in self.players:
+            if player.id in Player.players:
+                del Player.players[player.id]
+        if self.id in Game.games:
+            del Game.games[self.id]
 
 
 class Player:
@@ -334,37 +338,32 @@ class Player:
     
     def choose_bid_AI(self, validBids):
         if not self.maxBid:
-            HCP = get_HCP(self.hand)
+            HCP = calculate_HCP(self.hand)
             suitLengths = {
-                suit : len([card for card in self.hand if card[0]==suit]) 
+                suit: len([card for card in self.hand if card[0] == suit])
                 for suit in Game.suits
-            }   # {suit:length}
+            }
             maxLength = max(suitLengths.values())
             minLength = min(suitLengths.values())
-            if maxLength <= 4 and minLength >= 2:   # try no trump
+            if maxLength <= 4 and minLength >= 2:  # Try no trump
                 maxBidNum = round(0.25 * HCP - 1.75)
                 maxBidNum = min(maxBidNum, 7)
                 self.maxBid = str(maxBidNum) + 'N' if maxBidNum > 0 else Game.PASS
-            else:   # find preferred trump
+            else:   # ind preferred trump
                 # many suits longest -> take highest suit (S>H>D>C)
                 for suit in Game.suits[::-1]:
-                    if suitLengths[suit]==maxLength:
+                    if suitLengths[suit] == maxLength:
                         preferredSuit = suit
                         break
                 maxBidNum = round(0.23 * HCP + 0.70 * maxLength - 4.39)
                 maxBidNum = min(maxBidNum, 7)
-                if maxBidNum > 0:
-                    self.maxBid = str(maxBidNum) + preferredSuit
-                else:
-                    self.maxBid = Game.PASS
-        if self.maxBid==Game.PASS or self.maxBid not in validBids:
+                self.maxBid = str(maxBidNum) + preferredSuit if maxBidNum > 0 else Game.PASS
+        if self.maxBid == Game.PASS or self.maxBid not in validBids:
             return Game.PASS
-        # current bid has preferred suit/NT
-        if self.game.bid[1]==self.maxBid[1]:
+        if self.game.bid[1] == self.maxBid[1]:
             return Game.PASS
-        # bid lowest preferred
         for bid in validBids:
-            if bid[1]==self.maxBid[1]:
+            if bid[1] == self.maxBid[1]:
                 return bid
     
     def choose_partner_AI(self):
