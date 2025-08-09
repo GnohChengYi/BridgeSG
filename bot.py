@@ -1,15 +1,13 @@
+from dotenv import load_dotenv
 import logging
 import os
 
-import telegram.bot
 from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
                       InlineQueryResultArticle, InputTextMessageContent,
                       ParseMode, TelegramError)
 from telegram.ext import (CallbackQueryHandler, ChosenInlineResultHandler,
                           CommandHandler, DelayQueue, InlineQueryHandler,
                           Updater)
-
-import testPostgres  # TODO edit after test
 from bridge import Game, Player
 
 
@@ -555,6 +553,7 @@ def error(update, context):
 
 
 if __name__ == '__main__':
+    load_dotenv()
     token = os.environ['TELEGRAM_TOKEN']
     updater = Updater(token=token)
     updater.dispatcher.add_handler(CommandHandler('start', start))
