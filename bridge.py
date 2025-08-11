@@ -2,6 +2,10 @@
 from uuid import uuid4
 from random import choice, shuffle
 
+# Symbolic constants
+MAX_PLAYERS = 4
+MIN_TOTAL_POINTS = 8
+CARDS_PER_HAND = 13
 
 def calculate_HCP(hand):
     """Calculate High Card Points (HCP) for a given hand."""
@@ -47,11 +51,11 @@ def compare_cards(card1, card2, leadingSuit, trump):
 def deal_hands(deck):
     """Shuffle and deal hands to players."""
     shuffle(deck)
-    return [deck[i:i + 13] for i in (0, 13, 26, 39)]
+    return [deck[i:i + CARDS_PER_HAND] for i in range(0, CARDS_PER_HAND * MAX_PLAYERS, CARDS_PER_HAND)]
 
 def validate_hands(hands):
     """Ensure all hands meet the minimum Total Points (TP) requirement."""
-    return all(calculate_TP(hand) >= 8 for hand in hands)
+    return all(calculate_TP(hand) >= MIN_TOTAL_POINTS for hand in hands)
 
 def assign_hands_to_players(players, hands):
     """Assign sorted hands to players."""
