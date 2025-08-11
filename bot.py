@@ -1,15 +1,13 @@
+from dotenv import load_dotenv
 import logging
 import os
 
-import telegram.bot
 from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
                       InlineQueryResultArticle, InputTextMessageContent,
                       ParseMode, TelegramError)
 from telegram.ext import (CallbackQueryHandler, ChosenInlineResultHandler,
                           CommandHandler, DelayQueue, InlineQueryHandler,
                           Updater)
-
-import testPostgres  # TODO edit after test
 from bridge import Game, Player
 
 
@@ -46,22 +44,22 @@ def update_join_message(chatId, buttons=True):
     )
 
 
-def start(update, context):
-    chatId = update.effective_chat.id
+def initialize_delay_queue(chatId):
+    """Initialize a DelayQueue for a chat if not already present."""
     if chatId not in delayQueues:
         # Official limit is 20 msg/1 min. Make it stricter here.
         delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
-    if chatId in Game.games:
-        game = Game.games[chatId]
-        delayQueues[chatId](
-            context.bot.send_message,
-            reply_to_message_id=game.joinMessage.message_id,
-            chat_id=chatId,
-            text='Game already started!'
-        )
-        return
-    # create new Game and store in Game.games
+
+
+def send_message_with_delay(chatId, bot_method, **kwargs):
+    """Send a message using DelayQueue to respect rate limits."""
+    delayQueues[chatId](bot_method, **kwargs)
+
+
+def create_game(chatId, context):
+    """Create a new game and send the join message."""
     game = Game(chatId)
+    Game.games[chatId] = game
     game.joinMessage = context.bot.send_message(
         chat_id=chatId,
         text="Waiting for players to join ...\nJoined players:",
@@ -69,54 +67,86 @@ def start(update, context):
     )
 
 
+def handle_game_not_started(chatId, context):
+    """Handle the case where no game has started in the chat."""
+    send_message_with_delay(
+        chatId,
+        context.bot.send_message,
+        chat_id=chatId,
+        text='No game started!'
+    )
+
+
+def handle_game_already_started(chatId, context, game):
+    """Handle the case where a game is already started in the chat."""
+    send_message_with_delay(
+        chatId,
+        context.bot.send_message,
+        reply_to_message_id=game.joinMessage.message_id,
+        chat_id=chatId,
+        text='Game already started!'
+    )
+
+
+# Refactored start function
+def start(update, context):
+    chatId = update.effective_chat.id
+    initialize_delay_queue(chatId)
+
+    if chatId in Game.games:
+        handle_game_already_started(chatId, context, Game.games[chatId])
+        return
+
+    create_game(chatId, context)
+
+
+# Refactored stop function
 def stop(update, context):
     chatId = update.effective_chat.id
-    if chatId not in delayQueues:
-        # Official limit is 20 msg/1 min. Make it stricter here.
-        delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
+    initialize_delay_queue(chatId)
+
     if chatId not in Game.games:
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId,
-            text='No game started!'
-        )
+        handle_game_not_started(chatId, context)
         return
+
     game = Game.games[chatId]
-    if game.phase == Game.JOIN_PHASE:  # no need update join msg aft game starts
+    if game.phase == Game.JOIN_PHASE:
         update_join_message(chatId, buttons=False)
     game.stop()
-    delayQueues[chatId](
+
+    send_message_with_delay(
+        chatId,
         context.bot.send_message,
         reply_to_message_id=game.joinMessage.message_id,
         chat_id=chatId,
         text='Game stopped.'
     )
+
     for player in game.players:
         if player.handMessage:
-            delayQueues[chatId](player.handMessage.edit_text, 'Game stopped.')
-    del game
+            send_message_with_delay(chatId, player.handMessage.edit_text, text='Game stopped.')
+
+    del Game.games[chatId]
 
 
 def help(update, context):
     chatId = update.effective_chat.id
-    if chatId not in delayQueues:
-        # Official limit is 20 msg/1 min. Make it stricter here.
-        delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
-    text = '[Floating bridge](https://en.wikipedia.org/wiki/Singaporean_bridge)\n'
-    text += 'Start game: /start\n'
-    text += 'Stop game: /stop\n'
-    text += 'Show this: /help\n\n'
-    text += 'For 1st timers, pm me @{} '.format(context.bot.username)
-    text += 'so that I can pm you.\n\n'
-    text += 'Type \'@{} hi\' to select bid/cards.\n'.format(
-        context.bot.username)
-    text += 'Wait for a while for bids/cards to appear.\n\n'
-    text += 'I can only send <20 messages/minute'
-    text += ", so please wait for 1 minute if I am not responding.\n"
-    text += "If I did not respond within 1 minute, an error might have occured.\n"
-    text += "Try /start to start a new game.\n\n"
-    text += 'Good luck and have fun!'
-    delayQueues[chatId](
+    initialize_delay_queue(chatId)
+
+    text = (f"[Floating bridge](https://en.wikipedia.org/wiki/Singaporean_bridge)\n"
+            "Start game: /start\n"
+            "Stop game: /stop\n"
+            "Show this: /help\n\n"
+            f"For 1st timers, pm me @{context.bot.username} so that I can pm you.\n\n"
+            f"Type '@{context.bot.username} hi' to select bid/cards.\n"
+            "Wait for a while for bids/cards to appear.\n\n"
+            "I can only send <20 messages/minute, so please wait for 1 minute if I am not responding.\n"
+            "If I did not respond within 1 minute, an error might have occurred.\n"
+            "Try /start to start a new game.\n\n"
+            "Good luck and have fun!")
+
+    send_message_with_delay(
+        chatId,
         context.bot.send_message,
         chat_id=chatId,
         text=text,
@@ -555,6 +585,7 @@ def error(update, context):
 
 
 if __name__ == '__main__':
+    load_dotenv()
     token = os.environ['TELEGRAM_TOKEN']
     updater = Updater(token=token)
     updater.dispatcher.add_handler(CommandHandler('start', start))

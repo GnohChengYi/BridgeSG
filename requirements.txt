@@ -1,2 +1,5 @@
-python-telegram-bot
-psycopg2-binary
+asgiref~=3.7.2
+flask[async]~=2.3.2
+python-dotenv==1.0.1
+python-telegram-bot==21.6
+uvicorn~=0.23.2
