@@ -13,4 +13,5 @@ This project is a Telegram bot for the card game "Bridge".
 ## Additional Guidelines
 
 - Plan your changes and ask for feedback before implementing them.
+- When debugging, investigate and make hypotheses about the potential causes of issues. Add debug logs to verify your hypotheses. Explain your thought process and findings.
 - Make small incremental changes (less than 100 lines).
