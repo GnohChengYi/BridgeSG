@@ -1,13 +1,20 @@
 from flask import Flask, request, Response
 from http import HTTPStatus
+from flask.cli import load_dotenv
 from telegram import Update
 from telegram.ext import Application
 import os
+import sys
+
+# Add the api directory to the Python module search path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from dummy_bot import dummy_application
 
 app = Flask(__name__)
 
 # Load environment variables
+load_dotenv()
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 application = Application.builder().token(TOKEN).build()
 
