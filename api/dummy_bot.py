@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Define a simple start command for the dummy bot
 async def start(update: Update, context):
+    logger.info("Processing /start command from user: %s", update.effective_user)
     await update.message.reply_text("This is a dummy bot for sanity checking!")
 
 # Create the dummy bot application
