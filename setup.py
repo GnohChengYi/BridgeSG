@@ -40,13 +40,19 @@ class CustomContext(CallbackContext[ExtBot, dict, dict, dict]):
 
 
 async def start(update: Update, context: CustomContext) -> None:
-    """Display a message with instructions on how to use this bot."""
+    """Display a message with instructions on how to use this bot and notify the chat."""
     payload_url = html.escape(f"{URL}/submitpayload?user_id=<your user id>&payload=<payload>")
     text = (
         f"To check if the bot is still running, call <code>{URL}/healthcheck</code>.\n\n"
         f"To post a custom update, call <code>{payload_url}</code>."
     )
     await update.message.reply_html(text=text)
+
+    # Notify the chat that invoked the command
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="The bot has been successfully set up and is ready to use!"
+    )
 
 
 async def webhook_update(update: WebhookUpdate, context: CustomContext) -> None:

@@ -26,5 +26,5 @@ The AI player is intended to be as strong as an average player.
 
 ## Trivia
 
-This bot is developed during the Movement Control Order (MCO) period.
+This bot is initially developed during the early COVID-19 era.
 Other usernames including FloatingBridgeBot and SGBridgeBot were considered but they were all taken :(.
