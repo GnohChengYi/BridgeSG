@@ -6,6 +6,7 @@ from telegram.ext import Application
 import os
 import sys
 import logging
+import asyncio
 
 # Add the api directory to the Python module search path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -33,7 +34,7 @@ def telegram_webhook():
         update_json = request.get_json(force=True)
         logger.info("Received update: %s", update_json)
         update = Update.de_json(update_json, dummy_application.bot)
-        dummy_application.update_queue.put(update)
+        asyncio.run(dummy_application.update_queue.put(update))
         logger.info("Update successfully added to the queue.")
     except Exception as e:
         logger.error("Error processing update: %s", e)
