@@ -6,9 +6,9 @@ from flask.cli import load_dotenv
 from http import HTTPStatus
 import asyncio
 
-from typing import Callable, Dict, Optional
-from handlers import HANDLERS, SUPPORTED_COMMANDS
-
+from typing import Optional
+from handlers import COMMAND_HANDLERS, SUPPORTED_COMMANDS
+from lobby import CALLBACK_HANDLERS
 
 def extract_command_from_text(text: Optional[str]) -> Optional[str]:
     """Return the command name (without leading slash) if text contains a command.
@@ -46,37 +46,73 @@ def process_update_sync(update_json: dict):
     Application, register the async handler and run the update in a fresh
     event loop so we can reuse the same handler logic.
     """
+    # Fail fast if token isn't configured; no need to parse the update.
+    if not TELEGRAM_TOKEN:
+        logger.warning("TELEGRAM_TOKEN not configured, skipping processing")
+        return (HTTPStatus.OK, "no token")
+
     try:
+        # Check for message-based command first; callback_query updates
+        # may carry the chat id inside callback_query.message.chat.
         message = update_json.get("message") or {}
+        callback = update_json.get("callback_query") or {}
         text = message.get("text", "")
-        chat = message.get("chat") or {}
+
+        # chat id may be in message.chat or callback_query.message.chat
+        chat = message.get("chat") or (callback.get("message") or {}).get("chat") or {}
         chat_id = chat.get("id")
-        if not chat_id:
-            return (HTTPStatus.OK, "no chat id")
 
         # If incoming text includes a supported command, process it.
         cmd = extract_command_from_text(text)
-        # Only handle commands we explicitly support.
-        if cmd and cmd in SUPPORTED_COMMANDS:
-            logger.info("Processing /%s (sync) for chat: %s", cmd, chat_id)
-            try:
-                app = Application.builder().token(TELEGRAM_TOKEN).build()
-                # Attach only the handler for the requested command
-                handler_fn = HANDLERS.get(cmd)
+
+        # Also support callback_query updates.
+        is_callback = bool(callback)
+
+        # If we don't have a chat id, bail early.
+        if not chat_id:
+            return (HTTPStatus.OK, "no chat id")
+
+        # If neither a supported command nor a callback, nothing to do.
+        if not ((cmd and cmd in SUPPORTED_COMMANDS) or is_callback):
+            return (HTTPStatus.OK, "unsupported update")
+
+        # We'll build a short-lived Application and register either the
+        # requested command handler (for commands) and always register
+        # callback handlers so callback_query updates are handled.
+        try:
+            if cmd:
+                logger.info("Processing /%s (sync) for chat: %s", cmd, chat_id)
+            if is_callback:
+                logger.info("Processing callback_query (sync) for update_id: %s", update_json.get("update_id"))
+
+            app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+            # Attach only the handler(s) we need for this update:
+            # - command handler when a supported command was received
+            # - callback handlers only when this is a callback_query update
+            if cmd:
+                handler_fn = COMMAND_HANDLERS.get(cmd)
                 if handler_fn:
                     app.add_handler(CommandHandler(cmd, handler_fn))
 
-                update = Update.de_json(update_json, app.bot)
+            if is_callback:
+                for h in CALLBACK_HANDLERS:
+                    try:
+                        app.add_handler(h)
+                    except Exception:
+                        logger.exception("Failed to add callback handler %s", getattr(h, '__name__', repr(h)))
 
-                async def _run_once():
-                    await app.initialize()
-                    await app.process_update(update)
-                    await app.shutdown()
+            update = Update.de_json(update_json, app.bot)
 
-                asyncio.run(_run_once())
-            except Exception:
-                logger.exception("Failed to run per-invocation Application")
-                return (HTTPStatus.INTERNAL_SERVER_ERROR, "app error")
+            async def _run_once():
+                await app.initialize()
+                await app.process_update(update)
+                await app.shutdown()
+
+            asyncio.run(_run_once())
+        except Exception:
+            logger.exception("Failed to run per-invocation Application")
+            return (HTTPStatus.INTERNAL_SERVER_ERROR, "app error")
 
     except Exception:
         logger.exception("Error processing update sync")
