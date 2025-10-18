@@ -266,6 +266,9 @@ class Game:
         """Reconstruct a Game object from a dictionary."""
         game = cls(data['id'])
         game.players = [Player(p['id'], p['name'], isAI=p['isAI']) for p in data['players']]
+        # Ensure each Player knows which game they belong to after deserialization.
+        for p in game.players:
+            p.game = game
         for player, pdata in zip(game.players, data['players']):
             player.hand = pdata['hand']
             player.tricks = pdata['tricks']
