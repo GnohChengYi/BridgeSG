@@ -7,6 +7,9 @@ import redis
 from datetime import datetime
 from http import HTTPStatus
 import asyncio
+import json
+
+from bridge import Game
 
 # Enable logging
 logging.basicConfig(
@@ -66,14 +69,64 @@ def handle_start_for_chat():
         return None
 
 
+def _save_game_to_redis(chat_id: int, game: Game):
+    """Serialize and save a Game instance to Redis (if available).
+
+    The function is defensive: if Redis is not configured it logs a warning
+    and returns False. It does not raise.
+    """
+    if not redis_client:
+        logger.warning("Redis not configured; skipping game persistence for chat %s", chat_id)
+        return False
+    try:
+        redis_client.set(f"game:{chat_id}", json.dumps(game.to_dict()))
+        return True
+    except Exception:
+        logger.exception("Failed to save game to Redis for chat %s", chat_id)
+        return False
+
+
+def _game_exists_in_redis(chat_id: int) -> bool:
+    """Return True if a saved game exists for chat_id in Redis."""
+    if not redis_client:
+        return False
+    try:
+        return redis_client.exists(f"game:{chat_id}") == 1
+    except Exception:
+        logger.exception("Error checking game existence in Redis for chat %s", chat_id)
+        return False
+
+
 async def start(update: Update, context):
     """Async /start handler that reuses the sync helper for storage logic."""
     logger.info("Processing /start command from user: %s", update.effective_user)
     chat = update.effective_chat
-    if chat and chat.id:
+    if not (chat and chat.id):
+        return
+
+    chat_id = chat.id
+
+    # If a game already exists for this chat, reuse the stored info and reply.
+    if _game_exists_in_redis(chat_id):
         reply_text = handle_start_for_chat()
         if reply_text:
-            await update.message.reply_text(reply_text)
+            await update.message.reply_text(f"A game already exists. {reply_text}")
+        return
+
+    # Create a new Game instance and persist it. Keep the Game creation
+    # synchronous so it can be reused from different handlers (see old_bot.py / bot2.py).
+    try:
+        game = Game(str(chat_id))
+        saved = _save_game_to_redis(chat_id, game)
+        reply_text = handle_start_for_chat()
+        if saved:
+            resp = f"New game created for this chat (id={game.id}). {reply_text}"
+        else:
+            resp = f"New game created locally (id={game.id}) but Redis persistence is unavailable. {reply_text}"
+        await update.message.reply_text(resp)
+    except Exception:
+        logger.exception("Failed to create and persist new game for chat %s", chat_id)
+        await update.message.reply_text("Failed to start a new game. Please try again later.")
 
 
 def process_update_sync(update_json: dict):
