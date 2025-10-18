@@ -1,635 +1,167 @@
-from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import Application, CommandHandler
 import logging
 import os
+from flask.cli import load_dotenv
 import redis
-import json
+from datetime import datetime
+from http import HTTPStatus
 import asyncio
+import json
 
-from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
-                      InlineQueryResultArticle, InputTextMessageContent)
-from telegram.constants import ParseMode
-from telegram.error import TelegramError
-from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, InlineQueryHandler,
-                          Updater)
-from bridge import Game, Player
+from bridge import Game
 
-
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Enable logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
 logger = logging.getLogger(__name__)
-print("test test test logging with print")    # TODO remove after test
 
-# Initialize Redis client
-redis_client = redis.StrictRedis.from_url(os.environ.get("REDIS_URL"))
-
-# Replace DelayQueue with asyncio.Queue
-# Initialize delay queues for each chat
-# {chatId: asyncio.Queue}
-delayQueues = {}
-
-
-def get_markup():
-    firstRow, secondRow = [], []
-    firstRow.append(InlineKeyboardButton("Join!", callback_data='1'))
-    firstRow.append(InlineKeyboardButton("Quit...", callback_data='2'))
-    secondRow.append(InlineKeyboardButton("Insert AI", callback_data='3'))
-    secondRow.append(InlineKeyboardButton("Delete AI", callback_data='4'))
-    return InlineKeyboardMarkup([firstRow, secondRow])
-
-
-def update_join_message(chatId, buttons=True):
-    game = Game.games[chatId]
-    joinMessage = game.joinMessage
-    text = "Waiting for players to join ...\nJoined players:\n"
-    text += '\n'.join([player.name for player in game.players])
-    if not buttons:
-        delayQueues[chatId](joinMessage.edit_text, text=text)
-        return
-    delayQueues[chatId](
-        joinMessage.edit_text,
-        text=text,
-        reply_markup=get_markup()
-    )
-
-
-async def initialize_delay_queue(chatId):
-    """Initialize an asyncio.Queue for a chat if not already present."""
-    if chatId not in delayQueues:
-        delayQueues[chatId] = asyncio.Queue()
-
-
-async def send_message_with_delay(chatId, bot_method, **kwargs):
-    """Send a message using asyncio.Queue to respect rate limits."""
-    if chatId not in delayQueues:
-        await initialize_delay_queue(chatId)
-
-    # Add the message to the queue
-    await delayQueues[chatId].put((bot_method, kwargs))
-
-    # Process the queue
-    while not delayQueues[chatId].empty():
-        bot_method, kwargs = await delayQueues[chatId].get()
-        await bot_method(**kwargs)
-        await asyncio.sleep(3)  # Add a delay to respect rate limits
-
-
-def save_game_to_redis(chatId, game):
-    """Save the game state to Redis."""
-    redis_client.set(f"game:{chatId}", json.dumps(game.to_dict()))
-
-
-def load_game_from_redis(chatId):
-    """Load the game state from Redis."""
-    game_data = redis_client.get(f"game:{chatId}")
-    if game_data:
-        return Game.from_dict(json.loads(game_data))
-    return None
-
-
-# Refactored create_game function
-def create_game(chatId, context):
-    """Create a new game and save it to Redis."""
-    game = Game(chatId)
-    save_game_to_redis(chatId, game)
-    game.joinMessage = context.bot.send_message(
-        chat_id=chatId,
-        text="Waiting for players to join ...\nJoined players:",
-        reply_markup=get_markup(),
-    )
-
-
-def handle_game_not_started(chatId, context):
-    """Handle the case where no game has started in the chat."""
-    send_message_with_delay(
-        chatId,
-        context.bot.send_message,
-        chat_id=chatId,
-        text='No game started!'
-    )
-
-
-def handle_game_already_started(chatId, context, game):
-    """Handle the case where a game is already started in the chat."""
-    send_message_with_delay(
-        chatId,
-        context.bot.send_message,
-        reply_to_message_id=game.joinMessage.message_id,
-        chat_id=chatId,
-        text='Game already started!'
-    )
-
-
-# Refactored start function
-async def start(update, context):
-    chatId = update.effective_chat.id
-    await initialize_delay_queue(chatId)
-
-    game = load_game_from_redis(chatId)
-    if game:
-        await context.bot.send_message(chat_id=chatId, text="Game already exists!")
-        return
-
-    create_game(chatId, context)
-    await context.bot.send_message(chat_id=chatId, text="Game started!")
-
-
-# Refactored stop function
-def stop(update, context):
-    chatId = update.effective_chat.id
-    initialize_delay_queue(chatId)
-
-    game = load_game_from_redis(chatId)
-    if not game:
-        send_message_with_delay(
-            chatId,
-            context.bot.send_message,
-            chat_id=chatId,
-            text='No game started!'
-        )
-        return
-
-    if game.phase == Game.JOIN_PHASE:
-        game.stop()
-        redis_client.delete(f"game:{chatId}")
-
-    send_message_with_delay(
-        chatId,
-        context.bot.send_message,
-        reply_to_message_id=game.joinMessage.message_id,
-        chat_id=chatId,
-        text='Game stopped.'
-    )
-
-    for player in game.players:
-        del Player.players[player.id]
-
-
-def help(update, context):
-    chatId = update.effective_chat.id
-    initialize_delay_queue(chatId)
-
-    text = (f"[Floating bridge](https://en.wikipedia.org/wiki/Singaporean_bridge)\n"
-            "Start game: /start\n"
-            "Stop game: /stop\n"
-            "Show this: /help\n\n"
-            f"For 1st timers, pm me @{context.bot.username} so that I can pm you.\n\n"
-            f"Type '@{context.bot.username} hi' to select bid/cards.\n"
-            "Wait for a while for bids/cards to appear.\n\n"
-            "I can only send <20 messages/minute, so please wait for 1 minute if I am not responding.\n"
-            "If I did not respond within 1 minute, an error might have occurred.\n"
-            "Try /start to start a new game.\n\n"
-            "Good luck and have fun!")
-
-    send_message_with_delay(
-        chatId,
-        context.bot.send_message,
-        chat_id=chatId,
-        text=text,
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-
-def join(update, context):
-    chatId = update.effective_chat.id
-    query = update.callback_query
-    user = query.from_user
-    game = Game.games[chatId]
-    if game.full():
-        return
-    joinSuccess = game.add_human(user.id, user.first_name)
-    # slim possibility of failure due to full of players
-    # (checked for fullness above and in game.add_human(...))
-    if not joinSuccess:
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId,
-            text='[{}](tg://user?id={}), '.format(user.first_name, user.id) +
-            'quit/stop the game you joined (maybe in other chat) to join this game!',
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-    try:
-        context.bot.send_message(chat_id=user.id, text='Joined game!')
-    except(TelegramError):
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId,
-            text='[{}](tg://user?id={}), '.format(user.first_name, user.id) +
-            'please initiate a conversation with me ' +
-            '@{} !'.format(context.bot.username),
-            parse_mode=ParseMode.MARKDOWN
-        )
-        # undo the join
-        game.del_human(user.id)
-        return
-    if not game.full():
-        update_join_message(chatId)
-        return
-    start_game(update, context)
-
-
-def quit(update, context):
-    chatId = update.effective_chat.id
-    query = update.callback_query
-    user = query.from_user
-    game = Game.games[chatId]
-    quitSuccess = game.del_human(user.id)
-    if not quitSuccess:
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId,
-            text='[{}](tg://user?id={}), '.format(user.first_name, user.id) +
-            'you are not in the game of this chat!',
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-    update_join_message(chatId)
-
-
-def insert_AI(update, context):
-    chatId = update.effective_chat.id
-    query = update.callback_query
-    game = Game.games[chatId]
-    if game.full():
-        return
-    # does not matter if add fail due to full players
-    game.add_AI()
-    if not game.full():
-        update_join_message(chatId)
-        return
-    start_game(update, context)
-
-
-def delete_AI(update, context):
-    chatId = update.effective_chat.id
-    query = update.callback_query
-    game = Game.games[chatId]
-    delSuccess = game.del_AI()
-    if not delSuccess:
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId,
-            text='No AI in the game!'
-        )
-        return
-    update_join_message(chatId)
-
-
-def button(update, context):
-    data = update.callback_query.data
-    chatId = update.effective_chat.id
-    try:
-        if data == '1':
-            join(update, context)
-        elif data == '2':
-            quit(update, context)
-        elif data == '3':
-            insert_AI(update, context)
-        elif data == '4':
-            delete_AI(update, context)
-    except KeyError:    # chatId not in Game.games
-        if chatId not in delayQueues:
-            # Official limit is 20 msg/1 min. Make it stricter here.
-            delayQueues[chatId] = asyncio.Queue()
-        try:
-            update.callback_query.message.delete()
-            text = 'I was restarted recently and lost memory. '
-            text += 'Please ignore the unfinished games. '
-            text += 'Sorry for the inconvenience. '
-            delayQueues[chatId](
-                context.bot.send_message,
-                chat_id=chatId,
-                text=text
-            )
-        except TelegramError:
-            # "Message to delete not found": already deleted the message, no need to send lost-memory-message
-            pass
-    update.callback_query.answer()
-
-
-def translate_bid(bid):
-    '''Returns bid in a more readable form.'''
-    if bid == Game.PASS:
-        return 'PASS'
-    bid = bid.replace('C', '♣️')
-    bid = bid.replace('D', '♦️')
-    bid = bid.replace('H', '❤️')
-    bid = bid.replace('S', '♠️')
-    bid = bid.replace('N', '🚫')
-    return bid
-
-
-def translate_card(card):
-    '''Returns card in a more readable form.'''
-    if not card:
-        return
-    card = card[::-1]
-    card = card.replace('T', '10')
-    card = card.replace('C', '♣️')
-    card = card.replace('D', '♦️')
-    card = card.replace('H', '❤️')
-    card = card.replace('S', '♠️')
-    return card
-
-
-def translate_hand(hand):
-    club, diamond, heart, spade = [], [], [], []
-    for card in hand:
-        if card[0] == 'C':
-            club.append(card[1])
-        elif card[0] == 'D':
-            diamond.append(card[1])
-        elif card[0] == 'H':
-            heart.append(card[1])
-        elif card[0] == 'S':
-            spade.append(card[1])
-    result = ''
-    for suit, symbol in ((club, '♣️'), (diamond, '♦️'), (heart, '❤️'), (spade, '♠️')):
-        line = symbol + ': ' + ' '.join(suit) + '\n'
-        line = line.replace('T', '10')
-        result += line
-    return result
-
-
-def thumb_url_bid(bid):
-    if bid == Game.PASS:
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/81/waving-white-flag_1f3f3.png'
-    if bid[1] == 'C':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/51/black-club-suit_2663.png'
-    if bid[1] == 'D':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/51/black-diamond-suit_2666.png'
-    if bid[1] == 'H':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/237/black-heart-suit_2665.png'
-    if bid[1] == 'S':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/81/black-spade-suit_2660.png'
-    if bid[1] == 'N':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/google/241/prohibited_1f6ab.png'
-
-
-def thumb_url_card(card):
-    if card[0] == 'C':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/125/black-club-suit_2663.png'
-    if card[0] == 'D':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/126/black-diamond-suit_2666.png'
-    if card[0] == 'H':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/125/black-heart-suit_2665.png'
-    if card[0] == 'S':
-        return 'https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/60/apple/126/black-spade-suit_2660.png'
-
-
-def trick_text(game, next=True):
-    text = 'Declarer: {}\n'.format(game.declarer.name)
-    text += 'Bid: {}\n'.format(translate_bid(game.bid))
-    text += 'Partner: {}\n\n'.format(translate_card(game.partnerCard))
-    for i in range(len(game.players)):
-        text += '{} ({}): {}\n'.format(
-            game.players[i].name,
-            game.players[i].tricks,
-            translate_card(game.currentTrick[i])
-        )
-    if next:
-        player = game.activePlayer
-        text += '\n[{}](tg://user?id={}), '.format(player.name, player.id)
-        text += 'your turn to play a card!'
-    return text
-
-
-def start_game(update, context):
-    chatId = update.effective_chat.id
-    update_join_message(chatId, buttons=False)
-    delayQueues[chatId](
-        context.bot.send_message,
-        chat_id=chatId,
-        text='Game starts now!'
-    )
-    game = Game.games[chatId]
-    game.start()
-    for player in game.players:
-        if not player.isAI:
-            player.handMessage = context.bot.send_message(
-                chat_id=player.id,
-                text='Your Hand:\n'+translate_hand(player.hand)
-            )
-    request_bid(chatId, context)
-
-
-def request_bid(chatId, context):
-    if chatId not in Game.games:    # everyone passed, game stopped
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId,
-            text='Everyone passed! Game ended.'
-        )
-        return
-    game = Game.games[chatId]
-    player = game.activePlayer
-    if game.phase == Game.CALL_PHASE:
-        request_partner(chatId, context)
-        return
-    if player.isAI:
-        bid = player.make_bid()
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId,
-            text='{}: {}'.format(player.name, translate_bid(bid))
-        )
-        request_bid(chatId, context)
-        return
-    text = 'Current Bid: {}\n'.format(translate_bid(game.bid))
-    if not game.declarer:
-        text += 'Bidder: {}\n'.format(None)
-    else:
-        text += 'Bidder: {}\n'.format(game.declarer.name)
-    text += '[{}](tg://user?id={}), '.format(player.name, player.id)
-    text += 'your turn to bid!'
-    delayQueues[chatId](
-        context.bot.send_message,
-        chat_id=chatId,
-        text=text,
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-
-def request_partner(chatId, context):
-    game = Game.games[chatId]
-    player = game.activePlayer
-    if player.isAI:
-        player.call_partner()
-        request_card(chatId, context)
-        return
-    delayQueues[chatId](
-        context.bot.send_message,
-        chat_id=chatId,
-        text='[{}](tg://user?id={}), '.format(player.name, player.id) +
-        'you won the bid! Choose your partner\'s card!',
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-
-def request_card(chatId, context):
-    game = Game.games[chatId]
-    if game.phase == Game.END_PHASE:
-        conclude_game(chatId, context)
-        return
-    player = game.activePlayer
-    if player is game.players[0]:
-        delayQueues[chatId](
-            context.bot.send_message,
-            chat_id=chatId,
-            text=trick_text(game),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    if player.isAI:
-        card = player.play_card()
-        if card:
-            delayQueues[chatId](
-                context.bot.send_message,
-                chat_id=chatId,
-                text=trick_text(game, next=player is not game.players[-1]),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            if player is game.players[-1]:
-                game.complete_trick()
-            request_card(chatId, context)
-
-
-def conclude_game(chatId, context):
-    game = Game.games[chatId]
-    text = 'Congratulations!\n'
-    for winner in game.winners:
-        text += '[{}](tg://user?id={})\n'.format(winner.name, winner.id)
-    text += 'You won the game!'
-    delayQueues[chatId](
-        context.bot.send_message,
-        chat_id=chatId,
-        text=text,
-        parse_mode=ParseMode.MARKDOWN
-    )
-    for player in game.players:
-        if player.handMessage:
-            delayQueues[chatId](player.handMessage.edit_text, 'Game ended.')
-    game.stop()
-
-
-def inline_action(update, context):
-    inlineQuery = update.inline_query
-    query = inlineQuery.query
-    if not query:
-        return
-    user = inlineQuery.from_user
-    if user.id not in Player.players:
-        return
-    player = Player.players[user.id]
-    game = player.game
-    if player is not game.activePlayer:
-        return
-    results = []
-    if game.phase == Game.BID_PHASE:
-        for bid in game.valid_bids():
-            results.append(InlineQueryResultArticle(
-                id=bid,
-                title=translate_bid(bid),
-                input_message_content=InputTextMessageContent(
-                    translate_bid(bid)),
-                thumb_url=thumb_url_bid(bid)
-            ))
-    elif game.phase == Game.CALL_PHASE:
-        # max 50 queryresults but 52 cards -> don't allow self-calling
-        for card in Game.deck:
-            if card not in player.hand:
-                results.append(InlineQueryResultArticle(
-                    id=card,
-                    title=translate_card(card),
-                    input_message_content=InputTextMessageContent(
-                        translate_card(card)
-                    ),
-                    thumb_url=thumb_url_card(card)
-                ))
-    elif game.phase == Game.PLAY_PHASE:
-        for card in player.valid_cards():
-            results.append(InlineQueryResultArticle(
-                id=card,
-                title=translate_card(card),
-                input_message_content=InputTextMessageContent(
-                    translate_card(card)
-                ),
-                thumb_url=thumb_url_card(card)
-            ))
-    context.bot.answer_inline_query(
-        inlineQuery.id,
-        results,
-        cache_time=2,
-        is_personal=True
-    )
-
-
-def action(update, context):
-    result = update.chosen_inline_result
-    playerId = result.from_user.id
-    player = Player.players[playerId]
-    game = player.game
-    chatId = player.game.id
-    if game.phase == Game.BID_PHASE:
-        bid = result.result_id
-        if not player.make_bid(bid):
-            delayQueues[chatId](
-                context.bot.send_message,
-                chat_id=chatId,
-                text='Not your turn or invalid bid!'
-            )
-        request_bid(chatId, context)
-    elif game.phase == Game.CALL_PHASE:
-        card = result.result_id
-        if not player.call_partner(card):
-            delayQueues[chatId](
-                context.bot.send_message,
-                chat_id=chatId,
-                text='Not your turn or invalid card!'
-            )
-            request_partner(chatId, context)
-            return
-        # start playing cards
-        request_card(chatId, context)
-    elif game.phase == Game.PLAY_PHASE:
-        card = result.result_id
-        if not player.play_card(card):
-            delayQueues[chatId](
-                context.bot.send_message,
-                chat_id=chatId,
-                text='Not your turn or invalid card!'
-            )
-        else:
-            delayQueues[chatId](
-                player.handMessage.edit_text,
-                translate_hand(player.hand)
-            )
-            delayQueues[chatId](
-                context.bot.send_message,
-                chat_id=chatId,
-                text=trick_text(game, next=player is not game.players[-1]),
-                parse_mode=ParseMode.MARKDOWN
-            )
-            if player is game.players[-1]:
-                game.complete_trick()
-            request_card(chatId, context)
-
-
-def error(update, context):
-    logger.warning('\nUpdate "%s" caused error "%s"', update, context.error)
-
-
+# Load environment variables early
 load_dotenv()
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+REDIS_URL = os.environ.get("REDIS_URL")
 
-application = Application.builder().token(os.environ.get("TELEGRAM_TOKEN")).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("stop", stop))
-application.add_handler(CommandHandler("help", help))
-application.add_handler(CallbackQueryHandler(button))
-application.add_handler(InlineQueryHandler(inline_action))
-application.add_error_handler(error)
 
-# Expose the application for linking
-bot_application = application
+def _create_redis_client(url: str):
+    """Return a redis client for the given URL, or None if not configured.
 
-if __name__ == '__main__':
-    application.run_polling()
+    This is small helper to centralize Redis construction and avoid raising
+    on import when REDIS_URL is missing (serverless environments may not set it
+    for some routes).
+    """
+    if not url:
+        logger.warning("REDIS_URL not set; Redis features will be disabled")
+        return None
+    try:
+        return redis.StrictRedis.from_url(url)
+    except Exception:
+        logger.exception("Failed to create Redis client from URL")
+        return None
+
+
+# Construct redis client (may be None if not configured)
+redis_client = _create_redis_client(REDIS_URL)
+
+
+def handle_start_for_chat():
+    """Shared synchronous helper that updates Redis and returns reply text.
+
+    The function intentionally keeps behavior synchronous so it can be reused
+    from both sync serverless handlers and async CommandHandlers.
+    """
+    try:
+        current_time = datetime.now().isoformat()
+        if redis_client:
+            redis_client.set("last_start_time", current_time)
+            retrieved = redis_client.get("last_start_time")
+            if retrieved:
+                retrieved_time = retrieved.decode("utf-8")
+            else:
+                retrieved_time = current_time
+        else:
+            # Fallback: no Redis available
+            retrieved_time = current_time
+        return f"The last start time was: {retrieved_time}"
+    except Exception:
+        logger.exception("Error in handle_start_for_chat")
+        return None
+
+
+def _save_game_to_redis(chat_id: int, game: Game):
+    """Serialize and save a Game instance to Redis (if available).
+
+    The function is defensive: if Redis is not configured it logs a warning
+    and returns False. It does not raise.
+    """
+    if not redis_client:
+        logger.warning("Redis not configured; skipping game persistence for chat %s", chat_id)
+        return False
+    try:
+        redis_client.set(f"game:{chat_id}", json.dumps(game.to_dict()))
+        return True
+    except Exception:
+        logger.exception("Failed to save game to Redis for chat %s", chat_id)
+        return False
+
+
+def _game_exists_in_redis(chat_id: int) -> bool:
+    """Return True if a saved game exists for chat_id in Redis."""
+    if not redis_client:
+        return False
+    try:
+        return redis_client.exists(f"game:{chat_id}") == 1
+    except Exception:
+        logger.exception("Error checking game existence in Redis for chat %s", chat_id)
+        return False
+
+
+async def start(update: Update, context):
+    """Async /start handler that reuses the sync helper for storage logic."""
+    logger.info("Processing /start command from user: %s", update.effective_user)
+    chat = update.effective_chat
+    if not (chat and chat.id):
+        return
+
+    chat_id = chat.id
+
+    # If a game already exists for this chat, reuse the stored info and reply.
+    if _game_exists_in_redis(chat_id):
+        reply_text = handle_start_for_chat()
+        if reply_text:
+            await update.message.reply_text(f"A game already exists. {reply_text}")
+        return
+
+    # Create a new Game instance and persist it. Keep the Game creation
+    # synchronous so it can be reused from different handlers (see old_bot.py / bot2.py).
+    try:
+        game = Game(str(chat_id))
+        saved = _save_game_to_redis(chat_id, game)
+        reply_text = handle_start_for_chat()
+        if saved:
+            resp = f"New game created for this chat (id={game.id}). {reply_text}"
+        else:
+            resp = f"New game created locally (id={game.id}) but Redis persistence is unavailable. {reply_text}"
+        await update.message.reply_text(resp)
+    except Exception:
+        logger.exception("Failed to create and persist new game for chat %s", chat_id)
+        await update.message.reply_text("Failed to start a new game. Please try again later.")
+
+
+def process_update_sync(update_json: dict):
+    """Serverless-friendly synchronous processor for incoming update JSON.
+
+    If the update contains a message with text '/start', build a short-lived
+    Application, register the async handler and run the update in a fresh
+    event loop so we can reuse the same handler logic.
+    """
+    try:
+        message = update_json.get("message") or {}
+        text = message.get("text", "")
+        chat = message.get("chat") or {}
+        chat_id = chat.get("id")
+        if not chat_id:
+            return (HTTPStatus.OK, "no chat id")
+
+        if text and text.strip().startswith("/start"):
+            logger.info("Processing /start (sync) for chat: %s", chat_id)
+            try:
+                app = Application.builder().token(TELEGRAM_TOKEN).build()
+                app.add_handler(CommandHandler("start", start))
+
+                update = Update.de_json(update_json, app.bot)
+
+                async def _run_once():
+                    await app.initialize()
+                    await app.process_update(update)
+                    await app.shutdown()
+
+                asyncio.run(_run_once())
+            except Exception:
+                logger.exception("Failed to run per-invocation Application")
+                return (HTTPStatus.INTERNAL_SERVER_ERROR, "app error")
+
+    except Exception:
+        logger.exception("Error processing update sync")
+    return (HTTPStatus.OK, "ok")
