@@ -28,23 +28,6 @@ def create_redis_client(url: str):
         raise SystemExit(1)
 
 
-# TODO update to show proper start message
-def handle_start_for_chat(redis_client) -> Optional[str]:
-    """Synchronous helper that updates Redis and returns reply text.
-
-    Designed to be called from sync contexts as well as async handlers.
-    """
-    try:
-        current_time = datetime.now().isoformat()
-        redis_client.set("last_start_time", current_time)
-        retrieved = redis_client.get("last_start_time")
-        retrieved_time = retrieved.decode("utf-8") if retrieved else current_time
-        return f"The last start time was: {retrieved_time}"
-    except Exception:
-        logger.exception("Error in handle_start_for_chat")
-        return None
-
-
 def save_join_message(redis_client, chat_id: int, message_id: int) -> bool:
     """Save the bot's join-message id for a chat so callbacks can reference it."""
     try:
