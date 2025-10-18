@@ -1,47 +1,81 @@
-# Project Overview
+# Project overview
 
-This repository contains a Telegram bot for playing Bridge. The instructions below are intended for automated contributors and reviewers who will make focused code changes.
+This repository contains a Telegram bot for playing Bridge. The guidance below
+is written for automated contributors and reviewers who will make focused code
+changes in this project.
 
-## Principles
+## Core principles
 
-- Keep changes small and focused. Prefer edits <100 lines and avoid sweeping refactors.
-- Prefer clarity and reproducibility: log clearly, validate quickly, and document assumptions.
+- Keep changes small and focused. Prefer edits under ~100 lines and avoid
+	sweeping refactors in a single PR.
+- Favor clarity and reproducibility: log clearly, validate quickly, and record
+	assumptions made by automated edits.
 
-## Practical rules for automated contributors
+## Practical conventions (project-specific, assistant-friendly)
 
-- Start with a short todo list (use the repository's task tool when available). Mark one item as "in-progress" and update the list as you work.
+These are pragmatic rules that worked well in this repository. They are
+intentionally concrete but avoid being prompt-specific.
 
-- Preface any batch of tool calls or file edits with a one-sentence why/what/outcome summary so reviewers understand intent.
+- Command handlers
+	- Declare an explicit mapping (command -> handler) in the handlers module and
+		import that mapping into the bot entrypoint. This makes wiring and testing
+		straightforward.
 
-- After several tool calls or when editing multiple files (3-5 calls or >~3 files), provide a concise progress update: what ran, key results, and next steps.
+- Persistence and infra
+	- Centralize persistence/infra checks in a single module (for example
+		`api/store.py`) which constructs the client and exposes minimal helpers
+		(create/save/load/exists). Expose a module-level client for convenience.
+	- Fail fast on required services but support an env opt-out so CI/local runs
+		can skip network checks (e.g., `DISABLE_REDIS_CHECK=1`).
 
-- Enforce required external services at startup: if a dependency is essential (for example Redis is the authoritative state store), fail fast and log a clear error. If you add an early connectivity check (e.g. `ping()`), document an opt-out env var (for CI/dev) so tests can run without external services.
+- Serverless vs persistent runtimes
+	- For per-invocation handlers, register only the CommandHandler needed for
+		the incoming update instead of registering the whole command surface.
+	- Provide a small utility to parse command tokens from message text.
 
-- Treat serverless vs persistent runtimes differently: when the deployment is serverless prefer authoritative external state (Redis) and avoid relying on long-lived in-memory registries; still perform best-effort in-memory cleanup for warm invocations.
+- Edits and verification
+	- Keep automated edits small (<100 lines) and split larger changes.
+	- Verification checklist to run before finalizing changes:
+		1. Create a short todo list and mark one item `in-progress`.
+		2. Run static checks (syntax/import) with `get_errors` and fix up to three
+			 targeted issues automatically. If more remain, stop and report.
+		3. Add or update minimal unit tests for changed logic (happy path + one
+			 edge case) where feasible.
+		4. Re-run static checks and tests.
 
-- Keep key formats consistent (string vs int). If you change a convention, update usages and state that assumption in the edit note.
+- Commits, logs, and tests
+	- Keep commit messages concise and copyable using:
 
-- Do not edit reference or historical files (for example `old_bot.py`) except to read them. Port behavior into the active code instead.
+		<type>(<scope>): short summary
 
-- Validate every change quickly: run syntax/import checks (use `get_errors`), and any relevant unit or smoke tests. If failures occur, try up to three targeted fixes; if still failing, report the failing output clearly.
+		- One-line: main actions (move/rename/extract/fix)
+		- One-line: verification (get_errors/tests passed)
 
-- Avoid leaving unused imports or dead code. Use a quick grep/search or `get_errors` to spot leftovers.
+	- Log with contextual identifiers (chat id, request id) when helpful.
+	- Prefer unit tests for parsing/handler logic; leave integrations for follow-ups.
 
-- When adding startup checks or configuration changes, document behavior and provide opt-outs where appropriate for CI/local dev.
+## Operational rules for automated contributors
 
-- Log actions and exceptions with actionable messages including contextual identifiers (chat id, request id) when helpful for debugging.
+- Start with a short todo list (use repo task tool). Mark one todo as
+	`in-progress` and update it as you work.
+- Preface a batch of edits or tool calls with a one-sentence summary (why/what/outcome).
+- After 3–5 tool calls or edits across multiple files, provide a concise progress
+	update (what ran, key results, next steps).
+- Avoid editing historical reference files (e.g., `old_bot.py`) except to read
+	and port behavior into active code.
+- Use `apply_patch` for edits and keep context lines minimal.
 
-- Use `apply_patch` for edits when possible and keep context lines minimal.
+## Testing and verification checklist (summary)
 
-These rules are meant to make automated edits safer, easier to review, and reproducible by developers.
-
-## Testing and verification checklist
-
-- Run a syntax/import check on edited files (`get_errors`).
-- Run unit tests or a short smoke test if available and relevant.
-- If network integrations are required, provide manual test steps and an opt-out for CI if necessary.
+- Run `get_errors` on edited files.
+- Run unit tests or a short smoke test where relevant.
+- If network integrations are required, provide manual test steps and an opt-out
+	for CI if necessary.
 
 ## Communication
 
-- Keep commit messages and PR descriptions concise and focused on behavior and validation steps.
+- Keep PR descriptions focused and include verification notes.
 - Break larger changes into smaller PRs and include minimal usage notes when required.
+
+These instructions are aimed at making automated edits safe, testable, and
+easy to review in this project.
