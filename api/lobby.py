@@ -9,7 +9,7 @@ from store import (
     load_game_from_redis,
     load_join_message,
 )
-from game_utils import notify_players_hands
+from game_utils import notify_players_hands, request_bid_in_chat
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +44,6 @@ async def _safe_edit_join_message(bot, chat_id: int, message_id: int, text: str,
         logger.exception("Failed to edit join message for chat %s", chat_id)
 
 
-
-
-# TODO start game when enough players have joined
 async def lobby_callback_handler(update, context):
     """Handle inline keyboard presses for lobby (join/quit/insert/delete)."""
     q = update.callback_query
@@ -130,6 +127,12 @@ async def lobby_callback_handler(update, context):
                 await notify_players_hands(context.bot, game, chat_id)
             except Exception:
                 logger.exception("Failed while notifying players' hands for chat %s", chat_id)
+
+            # After notifying players, post the first bid prompt in the chat
+            try:
+                await request_bid_in_chat(context.bot, game, chat_id)
+            except Exception:
+                logger.exception("Failed to post initial bid prompt for chat %s", chat_id)
 
             # persist updated game state
             try:
