@@ -6,9 +6,9 @@ from flask.cli import load_dotenv
 from http import HTTPStatus
 import asyncio
 
-from typing import Callable, Dict, Optional
-from handlers import HANDLERS, SUPPORTED_COMMANDS
-
+from typing import Optional
+from handlers import COMMAND_HANDLERS, SUPPORTED_COMMANDS
+from lobby import CALLBACK_HANDLERS
 
 def extract_command_from_text(text: Optional[str]) -> Optional[str]:
     """Return the command name (without leading slash) if text contains a command.
@@ -62,9 +62,19 @@ def process_update_sync(update_json: dict):
             try:
                 app = Application.builder().token(TELEGRAM_TOKEN).build()
                 # Attach only the handler for the requested command
-                handler_fn = HANDLERS.get(cmd)
+                handler_fn = COMMAND_HANDLERS.get(cmd)
                 if handler_fn:
                     app.add_handler(CommandHandler(cmd, handler_fn))
+
+                # Attach any callback handlers. Registering extra handlers on a
+                # short-lived per-invocation Application is inexpensive and
+                # avoids conditional logic here. Handlers will simply not be
+                # invoked unless the update matches their filter.
+                for h in CALLBACK_HANDLERS:
+                    try:
+                        app.add_handler(h)
+                    except Exception:
+                        logger.exception("Failed to add callback handler %s", getattr(h, '__name__', repr(h)))
 
                 update = Update.de_json(update_json, app.bot)
 

@@ -1,14 +1,16 @@
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 from bridge import Game
 
 from store import (
     redis_client,
     handle_start_for_chat,
+    save_join_message,
     save_game_to_redis,
     game_exists_in_redis,
     load_game_from_redis,
 )
+from lobby import get_markup
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +38,15 @@ async def start(update: Update, context):
             resp = f"New game created for this chat (id={game.id}). {reply_text}"
         else:
             resp = f"New game created locally (id={game.id}) but Redis persistence is unavailable. {reply_text}"
-        await update.message.reply_text(resp)
+
+        # send join inline keyboard
+        sent = await update.message.reply_text(resp, reply_markup=get_markup())
+
+        # persist the join message id so callback handler can reference it
+        try:
+            save_join_message(redis_client, chat_id, sent.message_id)
+        except Exception:
+            logger.exception("Failed to persist join message id for chat %s", chat_id)
     except Exception:
         logger.exception("Failed to create and persist new game for chat %s", chat_id)
         await update.message.reply_text("Failed to start a new game. Please try again later.")
@@ -76,5 +86,5 @@ async def stop(update: Update, context):
 
 # Public mapping of command name -> handler callable. Kept here so the bot
 # wiring can remain focused on parsing and registering handlers.
-HANDLERS = {"start": start, "stop": stop}
-SUPPORTED_COMMANDS = list(HANDLERS.keys())
+COMMAND_HANDLERS = {"start": start, "stop": stop}
+SUPPORTED_COMMANDS = list(COMMAND_HANDLERS.keys())

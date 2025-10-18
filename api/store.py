@@ -28,6 +28,7 @@ def create_redis_client(url: str):
         raise SystemExit(1)
 
 
+# TODO update to show proper start message
 def handle_start_for_chat(redis_client) -> Optional[str]:
     """Synchronous helper that updates Redis and returns reply text.
 
@@ -42,6 +43,36 @@ def handle_start_for_chat(redis_client) -> Optional[str]:
     except Exception:
         logger.exception("Error in handle_start_for_chat")
         return None
+
+
+def save_join_message(redis_client, chat_id: int, message_id: int) -> bool:
+    """Save the bot's join-message id for a chat so callbacks can reference it."""
+    try:
+        redis_client.set(f"join_message:{chat_id}", str(message_id))
+        return True
+    except Exception:
+        logger.exception("Failed to save join message id for chat %s", chat_id)
+        return False
+
+
+def load_join_message(redis_client, chat_id: int) -> Optional[int]:
+    try:
+        v = redis_client.get(f"join_message:{chat_id}")
+        if not v:
+            return None
+        return int(v)
+    except Exception:
+        logger.exception("Failed to load join message id for chat %s", chat_id)
+        return None
+
+
+def delete_join_message(redis_client, chat_id: int) -> bool:
+    try:
+        redis_client.delete(f"join_message:{chat_id}")
+        return True
+    except Exception:
+        logger.exception("Failed to delete join message id for chat %s", chat_id)
+        return False
 
 
 def save_game_to_redis(redis_client, chat_id: int, game: Game) -> bool:
