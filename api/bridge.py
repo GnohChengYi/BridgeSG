@@ -76,8 +76,7 @@ def start_game(game):
 
 
 class Game:
-    # {chatId:Game}, store all games
-    games = {}
+    # No in-process global registry. Redis is the canonical store.
     suits = 'CDHS'
     numbers = 'AKQJT98765432'
     deck = (
@@ -118,13 +117,16 @@ class Game:
         self.trumpBroken = False
         self.totalTricks = 0    # declarer+partner's tricks, update in end phase
         self.winners = set()
-        Game.games[id] = self
+        # Note: No global registration here. Handlers should load/save
+        # the game state from Redis and pass around the Game object during
+        # the invocation.
 
     def full(self):
         return len(self.players) >= 4
     
     def add_human(self, id, name):
-        if self.full() or id in Player.players:
+        # ensure player id is not already in this game
+        if self.full() or any(p.id == id for p in self.players):
             return False
         player = Player(id, name)
         self.players.append(player)
@@ -132,14 +134,12 @@ class Game:
         return True
     
     def del_human(self, id):
-        if id not in Player.players:    # not in any game
-            return False
-        player = Player.players[id]
-        if player not in self.players:  # not in this game
+        # find player in this game
+        player = next((p for p in self.players if p.id == id), None)
+        if not player:
             return False
         self.players.remove(player)
         del player
-        del Player.players[id]
         return True
     
     def add_AI(self):
@@ -148,7 +148,7 @@ class Game:
         # make sure no repeated ids
         while True:
             id = str(uuid4())[:8]
-            if id not in Player.players:
+            if not any(p.id == id for p in self.players):
                 break
         name = 'AI ' + id[:5]
         player = Player(id, name, isAI=True)
@@ -160,7 +160,6 @@ class Game:
         for player in self.players:
             if player.isAI:
                 self.players.remove(player)
-                del Player.players[player.id]
                 del player
                 return True
         return False
@@ -237,11 +236,13 @@ class Game:
     def stop(self):
         """Stop the game and clean up resources."""
         self.phase = Game.END_PHASE
-        for player in self.players:
-            if player.id in Player.players:
-                del Player.players[player.id]
-        if self.id in Game.games:
-            del Game.games[self.id]
+        # Clean up player objects owned by this game. No global maps used.
+        for player in list(self.players):
+            try:
+                self.players.remove(player)
+                del player
+            except Exception:
+                pass
 
     def to_dict(self):
         """Serialize the game state to a dictionary."""
@@ -286,8 +287,7 @@ class Game:
         return game
 
 class Player:
-    # {userId:Player}, store all players
-    players = {}
+    # No global Player.players mapping; players are owned by their Game.
     
     def __init__(self, id, name, isAI=False):
         self.id = id
@@ -301,9 +301,16 @@ class Player:
         if isAI:
             self.maxBid = None
             self.enemies = []
-        Player.players[id] = self
     
     def make_bid(self, bid=Game.PASS):
+        # Expectation: player.game must be set by the caller (e.g. from
+        # Game.from_dict or by registering the game in-memory). We avoid
+        # scanning global in-memory maps here so the code is serverless-
+        # friendly and depends on Redis as canonical store.
+        if self.game is None:
+            raise RuntimeError(
+                f"Player {self.id} has no attached game. Load the game from Redis and ensure player.game is set before calling make_bid()."
+            )
         game = self.game
         if self is not game.activePlayer:
             return
@@ -324,6 +331,13 @@ class Player:
         return bid
     
     def call_partner(self, card='SA'):
+        # Expectation: player.game must be set by the caller (see note in
+        # make_bid). Do not attempt to discover the game by scanning process
+        # globals; that breaks in serverless/multi-process setups.
+        if self.game is None:
+            raise RuntimeError(
+                f"Player {self.id} has no attached game. Load the game from Redis and ensure player.game is set before calling call_partner()."
+            )
         game = self.game
         if self is not game.activePlayer:
             return
@@ -349,6 +363,12 @@ class Player:
         return card
     
     def play_card(self, card='SA'):
+        # Expectation: player.game must be set by the caller (see note in
+        # make_bid). Avoid scanning process-global maps here.
+        if self.game is None:
+            raise RuntimeError(
+                f"Player {self.id} has no attached game. Load the game from Redis and ensure player.game is set before calling play_card()."
+            )
         game = self.game        
         if self is not game.activePlayer:
             return
