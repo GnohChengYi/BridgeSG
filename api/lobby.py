@@ -9,6 +9,7 @@ from store import (
     load_game_from_redis,
     load_join_message,
 )
+from game_utils import notify_players_hands
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ async def _safe_edit_join_message(bot, chat_id: int, message_id: int, text: str,
         await bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=reply_markup)
     except Exception:
         logger.exception("Failed to edit join message for chat %s", chat_id)
+
+
 
 
 # TODO start game when enough players have joined
@@ -121,6 +124,12 @@ async def lobby_callback_handler(update, context):
                 game.start()
             except Exception:
                 logger.exception("Failed to start game in chat %s", chat_id)
+
+            # After starting, notify human players of their hands via DM.
+            try:
+                await notify_players_hands(context.bot, game, chat_id)
+            except Exception:
+                logger.exception("Failed while notifying players' hands for chat %s", chat_id)
 
             # persist updated game state
             try:
