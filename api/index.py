@@ -10,7 +10,7 @@ import traceback
 # Add the api directory to the Python module search path so local imports work
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from dummy_bot import process_update_sync
+from bot import process_update_sync
 
 app = Flask(__name__)
 
