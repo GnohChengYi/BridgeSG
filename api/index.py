@@ -1,75 +1,69 @@
 from flask import Flask, request, Response
 from http import HTTPStatus
 from flask.cli import load_dotenv
-from telegram import Update
 from telegram.ext import Application
 import os
 import sys
 import logging
-import asyncio
 import traceback
 
-# Add the api directory to the Python module search path
+# Add the api directory to the Python module search path so local imports work
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from dummy_bot import dummy_application
-from bot import bot_application
+from dummy_bot import process_update_sync
 
 app = Flask(__name__)
 
-application = dummy_application   # easily switch between dummy and real bot
-
-# Enable logging
+# Enable logging early
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
+# Load environment variables and validate minimal config
 load_dotenv()
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
+if not TOKEN:
+    logger.error("TELEGRAM_TOKEN not set; exiting with code 1")
+    sys.exit(1)
+
+# Build a long-running Application object for local use; in serverless
+# paths we use per-invocation helpers instead of relying on the background
+# loop being available.
 application = Application.builder().token(TOKEN).build()
 
-# Flag to track if the application has been initialized
-application_initialized = False
 
 @app.route('/telegram', methods=['POST'])
 def telegram_webhook():
-    """Handle incoming Telegram webhook requests directly."""
-    global application_initialized
+    """Entrypoint for Telegram webhooks.
 
+    For serverless deployments we process updates synchronously using
+    helpers in `dummy_bot` so the function stays short and deterministic.
+    """
     try:
-        # Initialize the application if not already done
-        if not application_initialized:
-            logger.info("Initializing the application...")
-            asyncio.run(application.initialize())
-            application_initialized = True
-
-        # Log raw request data
         logger.info("Raw request data: %s", request.data)
         logger.info("Request headers: %s", request.headers)
-
         update_json = request.get_json(force=True)
         logger.info("Received update: %s", update_json)
-        update = Update.de_json(update_json, application.bot)
 
-        # Process the update directly
-        asyncio.run(application.process_update(update))
-
-        logger.info("Update successfully processed.")
+        status, body = process_update_sync(update_json)
+        return Response(body or "", status=status)
     except Exception as e:
-        logger.error("Error processing update: %s", e)
+        logger.error("Error in telegram_webhook: %s", e)
         logger.error("Traceback: %s", traceback.format_exc())
-    return Response(status=HTTPStatus.OK)
+        return Response(status=HTTPStatus.INTERNAL_SERVER_ERROR)
+
 
 @app.route('/')
 def home():
     return 'Hello, World!'
 
+
 @app.route('/about')
 def about():
     return 'About'
+
 
 if __name__ == '__main__':
     app.run()
