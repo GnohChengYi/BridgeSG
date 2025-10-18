@@ -13,8 +13,11 @@ import traceback
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from dummy_bot import dummy_application
+from bot import bot_application
 
 app = Flask(__name__)
+
+application = dummy_application   # easily switch between dummy and real bot
 
 # Enable logging
 logging.basicConfig(
@@ -40,7 +43,7 @@ def telegram_webhook():
         # Initialize the application if not already done
         if not application_initialized:
             logger.info("Initializing the application...")
-            asyncio.run(dummy_application.initialize())
+            asyncio.run(application.initialize())
             application_initialized = True
 
         # Log raw request data
@@ -49,10 +52,10 @@ def telegram_webhook():
 
         update_json = request.get_json(force=True)
         logger.info("Received update: %s", update_json)
-        update = Update.de_json(update_json, dummy_application.bot)
+        update = Update.de_json(update_json, application.bot)
 
         # Process the update directly
-        asyncio.run(dummy_application.process_update(update))
+        asyncio.run(application.process_update(update))
 
         logger.info("Update successfully processed.")
     except Exception as e:

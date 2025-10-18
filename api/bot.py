@@ -1,12 +1,15 @@
 from dotenv import load_dotenv
 import logging
 import os
+import redis
+import json
+import asyncio
 
 from telegram import (InlineKeyboardButton, InlineKeyboardMarkup,
-                      InlineQueryResultArticle, InputTextMessageContent,
-                      ParseMode, TelegramError)
-from telegram.ext import (CallbackQueryHandler, ChosenInlineResultHandler,
-                          CommandHandler, DelayQueue, InlineQueryHandler,
+                      InlineQueryResultArticle, InputTextMessageContent)
+from telegram.constants import ParseMode
+from telegram.error import TelegramError
+from telegram.ext import (Application, CallbackQueryHandler, CommandHandler, InlineQueryHandler,
                           Updater)
 from bridge import Game, Player
 
@@ -16,8 +19,13 @@ logging.basicConfig(level=logging.DEBUG,
 logger = logging.getLogger(__name__)
 print("test test test logging with print")    # TODO remove after test
 
-# (12 May 2020) DelayQueues run forever. Might have problem in the future.
-delayQueues = {}    # {chatId:DelayQueue}
+# Initialize Redis client
+redis_client = redis.StrictRedis.from_url(os.environ.get("REDIS_URL"))
+
+# Replace DelayQueue with asyncio.Queue
+# Initialize delay queues for each chat
+# {chatId: asyncio.Queue}
+delayQueues = {}
 
 
 def get_markup():
@@ -44,22 +52,45 @@ def update_join_message(chatId, buttons=True):
     )
 
 
-def initialize_delay_queue(chatId):
-    """Initialize a DelayQueue for a chat if not already present."""
+async def initialize_delay_queue(chatId):
+    """Initialize an asyncio.Queue for a chat if not already present."""
     if chatId not in delayQueues:
-        # Official limit is 20 msg/1 min. Make it stricter here.
-        delayQueues[chatId] = DelayQueue(burst_limit=19, time_limit_ms=61000)
+        delayQueues[chatId] = asyncio.Queue()
 
 
-def send_message_with_delay(chatId, bot_method, **kwargs):
-    """Send a message using DelayQueue to respect rate limits."""
-    delayQueues[chatId](bot_method, **kwargs)
+async def send_message_with_delay(chatId, bot_method, **kwargs):
+    """Send a message using asyncio.Queue to respect rate limits."""
+    if chatId not in delayQueues:
+        await initialize_delay_queue(chatId)
+
+    # Add the message to the queue
+    await delayQueues[chatId].put((bot_method, kwargs))
+
+    # Process the queue
+    while not delayQueues[chatId].empty():
+        bot_method, kwargs = await delayQueues[chatId].get()
+        await bot_method(**kwargs)
+        await asyncio.sleep(3)  # Add a delay to respect rate limits
 
 
+def save_game_to_redis(chatId, game):
+    """Save the game state to Redis."""
+    redis_client.set(f"game:{chatId}", json.dumps(game.to_dict()))
+
+
+def load_game_from_redis(chatId):
+    """Load the game state from Redis."""
+    game_data = redis_client.get(f"game:{chatId}")
+    if game_data:
+        return Game.from_dict(json.loads(game_data))
+    return None
+
+
+# Refactored create_game function
 def create_game(chatId, context):
-    """Create a new game and send the join message."""
+    """Create a new game and save it to Redis."""
     game = Game(chatId)
-    Game.games[chatId] = game
+    save_game_to_redis(chatId, game)
     game.joinMessage = context.bot.send_message(
         chat_id=chatId,
         text="Waiting for players to join ...\nJoined players:",
@@ -89,15 +120,17 @@ def handle_game_already_started(chatId, context, game):
 
 
 # Refactored start function
-def start(update, context):
+async def start(update, context):
     chatId = update.effective_chat.id
-    initialize_delay_queue(chatId)
+    await initialize_delay_queue(chatId)
 
-    if chatId in Game.games:
-        handle_game_already_started(chatId, context, Game.games[chatId])
+    game = load_game_from_redis(chatId)
+    if game:
+        await context.bot.send_message(chat_id=chatId, text="Game already exists!")
         return
 
     create_game(chatId, context)
+    await context.bot.send_message(chat_id=chatId, text="Game started!")
 
 
 # Refactored stop function
@@ -105,14 +138,19 @@ def stop(update, context):
     chatId = update.effective_chat.id
     initialize_delay_queue(chatId)
 
-    if chatId not in Game.games:
-        handle_game_not_started(chatId, context)
+    game = load_game_from_redis(chatId)
+    if not game:
+        send_message_with_delay(
+            chatId,
+            context.bot.send_message,
+            chat_id=chatId,
+            text='No game started!'
+        )
         return
 
-    game = Game.games[chatId]
     if game.phase == Game.JOIN_PHASE:
-        update_join_message(chatId, buttons=False)
-    game.stop()
+        game.stop()
+        redis_client.delete(f"game:{chatId}")
 
     send_message_with_delay(
         chatId,
@@ -123,10 +161,7 @@ def stop(update, context):
     )
 
     for player in game.players:
-        if player.handMessage:
-            send_message_with_delay(chatId, player.handMessage.edit_text, text='Game stopped.')
-
-    del Game.games[chatId]
+        del Player.players[player.id]
 
 
 def help(update, context):
@@ -255,8 +290,7 @@ def button(update, context):
     except KeyError:    # chatId not in Game.games
         if chatId not in delayQueues:
             # Official limit is 20 msg/1 min. Make it stricter here.
-            delayQueues[chatId] = DelayQueue(
-                burst_limit=19, time_limit_ms=61000)
+            delayQueues[chatId] = asyncio.Queue()
         try:
             update.callback_query.message.delete()
             text = 'I was restarted recently and lost memory. '
@@ -584,16 +618,18 @@ def error(update, context):
     logger.warning('\nUpdate "%s" caused error "%s"', update, context.error)
 
 
+load_dotenv()
+
+application = Application.builder().token(os.environ.get("TELEGRAM_TOKEN")).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("stop", stop))
+application.add_handler(CommandHandler("help", help))
+application.add_handler(CallbackQueryHandler(button))
+application.add_handler(InlineQueryHandler(inline_action))
+application.add_error_handler(error)
+
+# Expose the application for linking
+bot_application = application
+
 if __name__ == '__main__':
-    load_dotenv()
-    token = os.environ['TELEGRAM_TOKEN']
-    updater = Updater(token=token)
-    updater.dispatcher.add_handler(CommandHandler('start', start))
-    updater.dispatcher.add_handler(CommandHandler('stop', stop))
-    updater.dispatcher.add_handler(CommandHandler('help', help))
-    updater.dispatcher.add_handler(CallbackQueryHandler(button))
-    updater.dispatcher.add_handler(InlineQueryHandler(inline_action))
-    updater.dispatcher.add_error_handler(error)
-    updater.dispatcher.add_handler(ChosenInlineResultHandler(action))
-    updater.start_polling()
-    updater.idle()
+    application.run_polling()

@@ -1,6 +1,7 @@
 # handles everything in a bridge game
 from uuid import uuid4
 from random import choice, shuffle
+import json
 
 # Symbolic constants
 MAX_PLAYERS = 4
@@ -242,6 +243,44 @@ class Game:
         if self.id in Game.games:
             del Game.games[self.id]
 
+    def to_dict(self):
+        """Serialize the game state to a dictionary."""
+        return {
+            'id': self.id,
+            'players': [{'id': p.id, 'name': p.name, 'isAI': p.isAI, 'hand': p.hand, 'tricks': p.tricks} for p in self.players],
+            'phase': self.phase,
+            'activePlayer': self.activePlayer.id if self.activePlayer else None,
+            'declarer': self.declarer.id if self.declarer else None,
+            'bid': self.bid,
+            'trump': self.trump,
+            'contract': self.contract,
+            'partnerCard': self.partnerCard,
+            'currentTrick': self.currentTrick,
+            'trumpBroken': self.trumpBroken,
+            'totalTricks': self.totalTricks,
+            'winners': [p.id for p in self.winners]
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        """Reconstruct a Game object from a dictionary."""
+        game = cls(data['id'])
+        game.players = [Player(p['id'], p['name'], isAI=p['isAI']) for p in data['players']]
+        for player, pdata in zip(game.players, data['players']):
+            player.hand = pdata['hand']
+            player.tricks = pdata['tricks']
+        game.phase = data['phase']
+        game.activePlayer = next((p for p in game.players if p.id == data['activePlayer']), None)
+        game.declarer = next((p for p in game.players if p.id == data['declarer']), None)
+        game.bid = data['bid']
+        game.trump = data['trump']
+        game.contract = data['contract']
+        game.partnerCard = data['partnerCard']
+        game.currentTrick = data['currentTrick']
+        game.trumpBroken = data['trumpBroken']
+        game.totalTricks = data['totalTricks']
+        game.winners = {p for p in game.players if p.id in data['winners']}
+        return game
 
 class Player:
     # {userId:Player}, store all players
