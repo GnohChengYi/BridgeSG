@@ -28,12 +28,6 @@ if not TOKEN:
     logger.error("TELEGRAM_TOKEN not set; exiting with code 1")
     sys.exit(1)
 
-# Build a long-running Application object for local use; in serverless
-# paths we use per-invocation helpers instead of relying on the background
-# loop being available.
-application = Application.builder().token(TOKEN).build()
-
-
 @app.route('/telegram', methods=['POST'])
 def telegram_webhook():
     """Entrypoint for Telegram webhooks.

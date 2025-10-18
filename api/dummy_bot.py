@@ -112,11 +112,3 @@ def process_update_sync(update_json: dict):
     except Exception:
         logger.exception("Error processing update sync")
     return (HTTPStatus.OK, "ok")
-
-
-# Create the dummy bot application for local/long-running usage
-application = Application.builder().token(TELEGRAM_TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-
-# Expose the application for linking
-dummy_application = application
