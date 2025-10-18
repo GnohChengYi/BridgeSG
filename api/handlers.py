@@ -89,12 +89,7 @@ async def stop(update: Update, context):
         except Exception:
             logger.exception("Failed to delete game from Redis for chat %s", chat_id)
 
-        in_memory_game = Game.games.get(chat_id)
-        if in_memory_game:
-            try:
-                in_memory_game.stop()
-            except Exception:
-                logger.exception("Error while stopping in-memory game for chat %s", chat_id)
+        # No in-process registry used; Redis is canonical. Nothing else to do.
     except Exception:
         logger.exception("Unexpected error while stopping game for chat %s", chat_id)
 
