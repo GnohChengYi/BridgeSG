@@ -4,8 +4,9 @@ from bridge import Game
 
 from store import (
     redis_client,
-    handle_start_for_chat,
     save_join_message,
+    load_join_message,
+    delete_join_message,
     save_game_to_redis,
     game_exists_in_redis,
     load_game_from_redis,
@@ -25,22 +26,19 @@ async def start(update: Update, context):
     chat_id = chat.id
 
     if game_exists_in_redis(redis_client, chat_id):
-        reply_text = handle_start_for_chat(redis_client)
-        if reply_text:
-            await update.message.reply_text(f"A game already exists. {reply_text}")
+        await update.message.reply_text(f"A game already exists.")
         return
 
     try:
         game = Game(chat_id)
         saved = save_game_to_redis(redis_client, chat_id, game)
-        reply_text = handle_start_for_chat(redis_client)
         if saved:
-            resp = f"New game created for this chat (id={game.id}). {reply_text}"
+            resp = "New game created for this chat."
+            # send join inline keyboard
+            sent = await update.message.reply_text(resp, reply_markup=get_markup())
         else:
-            resp = f"New game created locally (id={game.id}) but Redis persistence is unavailable. {reply_text}"
-
-        # send join inline keyboard
-        sent = await update.message.reply_text(resp, reply_markup=get_markup())
+            resp = "Game created but may not be saved properly. Try again another day."
+            sent = await update.message.reply_text(resp)
 
         # persist the join message id so callback handler can reference it
         try:
@@ -66,7 +64,26 @@ async def stop(update: Update, context):
         await update.message.reply_text("No game started!")
         return
 
+    # TODO remove join_message reply markup (if any)
     try:
+        # Clear stored join message reply_markup if present so the inline keyboard is removed
+        try:
+            join_msg_id = load_join_message(redis_client, chat_id)
+            if join_msg_id:
+                try:
+                    # Use bot to edit message and remove reply_markup (set to None)
+                    await context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=join_msg_id, reply_markup=None)
+                except Exception:
+                    logger.exception("Failed to clear reply_markup for join message %s in chat %s", join_msg_id, chat_id)
+                # delete stored join message id from redis
+                try:
+                    delete_join_message(redis_client, chat_id)
+                except Exception:
+                    logger.exception("Failed to delete stored join message id for chat %s", chat_id)
+
+        except Exception:
+            logger.exception("Failed while attempting to clear join message reply_markup for chat %s", chat_id)
+
         try:
             redis_client.delete(f"game:{chat_id}")
         except Exception:

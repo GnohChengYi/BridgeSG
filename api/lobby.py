@@ -43,6 +43,7 @@ async def _safe_edit_join_message(bot, chat_id: int, message_id: int, text: str,
         logger.exception("Failed to edit join message for chat %s", chat_id)
 
 
+# TODO start game when enough players have joined
 async def lobby_callback_handler(update, context):
     """Handle inline keyboard presses for lobby (join/quit/insert/delete)."""
     q = update.callback_query
@@ -101,6 +102,33 @@ async def lobby_callback_handler(update, context):
     text = _build_join_text(game)
     if join_msg_id:
         await _safe_edit_join_message(context.bot, chat_id, join_msg_id, text, q.message.reply_markup)
+
+    # If the game is now full, start it: deal hands, update persisted state,
+    # remove the join inline keyboard and announce the start in chat.
+    # Keep this minimal: we start the game object and persist it. Further
+    # per-player notifications (hands, bids) are handled elsewhere.
+    if game.full():
+        try:
+            # update the join message to show final players and remove buttons
+            start_text = text + "\n\nGame starts now!"
+            if join_msg_id:
+                await _safe_edit_join_message(context.bot, chat_id, join_msg_id, start_text, None)
+            else:
+                await context.bot.send_message(chat_id=chat_id, text="Game starts now!")
+
+            # start the game (deal hands, set active player/phase)
+            try:
+                game.start()
+            except Exception:
+                logger.exception("Failed to start game in chat %s", chat_id)
+
+            # persist updated game state
+            try:
+                save_game_to_redis(redis_client, chat_id, game)
+            except Exception:
+                logger.exception("Failed to persist started game for chat %s", chat_id)
+        except Exception:
+            logger.exception("Unexpected error while starting game for chat %s", chat_id)
 
 # Export callback handlers for wiring
 CALLBACK_HANDLERS = [CallbackQueryHandler(lobby_callback_handler)]
