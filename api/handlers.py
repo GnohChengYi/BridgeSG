@@ -5,6 +5,8 @@ from bridge import Game
 from store import (
     redis_client,
     save_join_message,
+    load_join_message,
+    delete_join_message,
     save_game_to_redis,
     game_exists_in_redis,
     load_game_from_redis,
@@ -64,6 +66,24 @@ async def stop(update: Update, context):
 
     # TODO remove join_message reply markup (if any)
     try:
+        # Clear stored join message reply_markup if present so the inline keyboard is removed
+        try:
+            join_msg_id = load_join_message(redis_client, chat_id)
+            if join_msg_id:
+                try:
+                    # Use bot to edit message and remove reply_markup (set to None)
+                    await context.bot.edit_message_reply_markup(chat_id=chat_id, message_id=join_msg_id, reply_markup=None)
+                except Exception:
+                    logger.exception("Failed to clear reply_markup for join message %s in chat %s", join_msg_id, chat_id)
+                # delete stored join message id from redis
+                try:
+                    delete_join_message(redis_client, chat_id)
+                except Exception:
+                    logger.exception("Failed to delete stored join message id for chat %s", chat_id)
+
+        except Exception:
+            logger.exception("Failed while attempting to clear join message reply_markup for chat %s", chat_id)
+
         try:
             redis_client.delete(f"game:{chat_id}")
         except Exception:
