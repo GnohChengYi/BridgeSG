@@ -5,4 +5,3 @@ Steps
 
 Notes
 * Clean up the code first, before implementing enhancements
-* Feel free to add more issues
