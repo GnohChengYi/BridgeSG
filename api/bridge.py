@@ -77,6 +77,14 @@ def start_game(game):
 
 class Game:
     # No in-process global registry. Redis is the canonical store.
+    
+    # Suit constants
+    CLUBS = 'C'
+    DIAMONDS = 'D'
+    HEARTS = 'H'
+    SPADES = 'S'
+    NO_TRUMP = 'N'
+    
     suits = 'CDHS'
     numbers = 'AKQJT98765432'
     deck = (
