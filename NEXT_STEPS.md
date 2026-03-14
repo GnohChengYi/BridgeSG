@@ -1,8 +1,19 @@
 # Next Steps for BridgeSG Bot
 
-## ✅ Completed (Nov 20, 2025)
-- Phase 1: Inline handlers infrastructure (`inline_handlers.py`, helpers in `store.py`, `game_utils.py`)
-- Phase 2: Webhook integration in `bot.py` (detects & routes inline queries)
+## ✅ Completed 
+
+### Phase 1: Inline handlers infrastructure (Nov 20, 2025)
+- `inline_handlers.py`, helpers in `store.py`, `game_utils.py`
+
+### Phase 2: Webhook integration in `bot.py` (Nov 20, 2025)
+- Detects & routes inline queries and chosen_inline_results
+
+### Phase 3: Inline Query JSON Logging (Mar 14, 2026)
+- Added `json.dumps()` logging in `bot.py` for:
+  - `inline_query` full payload (line 96)
+  - `chosen_inline_result` full payload (line 99)
+- Captures these objects whenever they appear in webhook pipeline
+- Ready for testing in group chat to determine chat context availability
 
 ## 🔴 Blocked: Inline Query Context
 
@@ -13,17 +24,17 @@
 {"inline_query": {"chat_type": "sender", "from": {"id": 12345}}}  // ← No chat_id!
 ```
 
-### 🧪 Next Action: TEST IN GROUP CHAT
+### 🧪 Next Action: RUN LOGGING TEST IN GROUP CHAT
 
-Add to `bot.py`:
-```python
-logger.info("inline_query: %s", json.dumps(inline_query, indent=2))
-logger.info("chosen_inline_result: %s", json.dumps(chosen_inline_result, indent=2))
+Start game in group → type `@BotName` → check logs for:
+```
+inline_query payload: {...}
+chosen_inline_result payload: {...}
 ```
 
-Start game in group → type `@BotName` → check if `inline_query` contains chat_id.
+Verify if `inline_query.chat` or `inline_query.from.id` contains group context.
 
-### Solutions (depends on test):
+### Solutions (depends on test results):
 
 **A) Group queries have chat_id** → Extract chat_id from `inline_query`, fix `inline_handlers.py`
 
@@ -40,7 +51,8 @@ Start game in group → type `@BotName` → check if `inline_query` contains cha
 3. Add trick completion & game conclusion logic
 
 ## 📁 Key Files
-- `api/bot.py` - Webhook routing
+- `api/bot.py` - Webhook routing (logging completed ✅)
 - `api/inline_handlers.py` - Bid/card selection
 - `api/bridge.py` - Game logic
 - `api/store.py` - Redis helpers
+

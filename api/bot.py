@@ -5,6 +5,7 @@ import os
 from flask.cli import load_dotenv
 from http import HTTPStatus
 import asyncio
+import json
 
 from typing import Optional
 from handlers import COMMAND_HANDLERS, SUPPORTED_COMMANDS
@@ -92,8 +93,10 @@ def process_update_sync(update_json: dict):
                 logger.info("Processing callback_query (sync) for update_id: %s", update_json.get("update_id"))
             if is_inline_query:
                 logger.info("Processing inline_query (sync) for user: %s", inline_query.get("from", {}).get("id"))
+                logger.info("inline_query payload: %s", json.dumps(inline_query, indent=2))
             if is_chosen_inline_result:
                 logger.info("Processing chosen_inline_result (sync) for user: %s", chosen_inline_result.get("from", {}).get("id"))
+                logger.info("chosen_inline_result payload: %s", json.dumps(chosen_inline_result, indent=2))
 
             app = Application.builder().token(TELEGRAM_TOKEN).build()
 
