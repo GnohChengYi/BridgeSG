@@ -86,12 +86,48 @@ def load_game_from_redis(redis_client, chat_id: int):
         return None
 
 
+def set_user_active_game(redis_client, user_id: int, chat_id: int) -> bool:
+    """Store the active chat context for a user in Redis.
+
+    This enables session-based routing for inline queries, which don't include
+    chat context. Whenever a user interacts with a chat (command, callback, etc),
+    we record which chat they're actively using so inline queries can retrieve it.
+
+    Key format: user:{user_id}:active_chat
+    """
+    try:
+        redis_client.set(f"user:{user_id}:active_chat", str(chat_id))
+        return True
+    except Exception:
+        logger.exception("Failed to set active game for user %s in chat %s", user_id, chat_id)
+        return False
+
+
+def get_user_active_game(redis_client, user_id: int) -> Optional[int]:
+    """Retrieve the active chat context for a user from Redis.
+
+    Returns the chat_id if found, else None.
+    This is the primary mechanism for inline queries to determine which game
+    the user is interacting with, since inline_query payloads contain no chat context.
+
+    Key format: user:{user_id}:active_chat
+    """
+    try:
+        chat_id = redis_client.get(f"user:{user_id}:active_chat")
+        if not chat_id:
+            return None
+        return int(chat_id)
+    except Exception:
+        logger.exception("Failed to get active game for user %s", user_id)
+        return None
+
+
 def find_game_by_active_player(redis_client, user_id: int):
     """Scan Redis for a game where the given user is the active player.
-    
+
     Returns (chat_id, game) tuple if found, else (None, None).
-    This is used for inline query handlers where we need to find which game
-    the user is currently playing in.
+    This is a fallback mechanism used when user session lookup fails.
+    For inline query handlers, prefer get_user_active_game + load_game_from_redis first.
     """
     try:
         # Scan all game:* keys in Redis

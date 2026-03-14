@@ -8,6 +8,7 @@ from store import (
     save_game_to_redis,
     load_game_from_redis,
     load_join_message,
+    set_user_active_game,
 )
 from game_utils import notify_players_hands, request_bid_in_chat
 
@@ -51,6 +52,10 @@ async def lobby_callback_handler(update, context):
     data = q.data
     chat = q.message.chat
     chat_id = chat.id
+    user_id = q.from_user.id
+
+    # Record this user's active chat for inline query context
+    set_user_active_game(redis_client, user_id, chat_id)
 
     # Load game and join_message id
     game = load_game_from_redis(redis_client, chat_id)
