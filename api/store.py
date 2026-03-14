@@ -138,18 +138,22 @@ def find_game_by_active_player(redis_client, user_id: int):
                     continue
                 game_dict = json.loads(data)
                 active_player_id = game_dict.get('activePlayer')
+                logger.debug("[find_game_by_active_player] Scanned key=%s, activePlayer=%s", key, active_player_id)
                 if active_player_id == user_id:
                     # Extract chat_id from key (format is "game:123456")
                     chat_id = int(key.decode('utf-8').split(':')[1])
                     game = Game.from_dict(game_dict)
+                    logger.info("[find_game_by_active_player] Found match for user_id=%s in chat_id=%s", user_id, chat_id)
                     return (chat_id, game)
             except Exception:
                 logger.exception("Failed to parse game from key %s", key)
                 continue
+        logger.info("[find_game_by_active_player] No game found with user_id=%s as activePlayer", user_id)
         return (None, None)
     except Exception:
         logger.exception("Failed to scan Redis for user %s", user_id)
         return (None, None)
+
 
 
 # Create a module-level redis client at import time so callers can import

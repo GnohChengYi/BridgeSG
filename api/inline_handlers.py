@@ -65,12 +65,17 @@ async def inline_query_handler(update, context):
     try:
         results = []
         if game.phase == Game.BID_PHASE:
+            valid_bids = game.valid_bids()
+            logger.info("[inline_query] user_id=%s: BID_PHASE with valid_bids=%s", user_id, valid_bids)
             results = _build_bid_results(game)
         elif game.phase == Game.CALL_PHASE:
+            logger.info("[inline_query] user_id=%s: CALL_PHASE", user_id)
             results = _build_partner_results(game.activePlayer)
         elif game.phase == Game.PLAY_PHASE:
+            logger.info("[inline_query] user_id=%s: PLAY_PHASE", user_id)
             results = _build_card_results(game.activePlayer)
 
+        logger.info("[inline_query] user_id=%s: Returning %d results (phase=%s)", user_id, len(results), game.phase)
         await query.answer(results, cache_time=2, is_personal=True)
     except Exception:
         logger.exception("Failed to build inline query results for user %s", user_id)
