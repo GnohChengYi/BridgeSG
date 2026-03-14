@@ -54,18 +54,18 @@ async def notify_players_hands(bot, game, chat_id: int):
             logger.exception("Failed to DM hand to player %s for chat %s", getattr(player, "id", None), chat_id)
 
 
-def _translate_bid(bid: str) -> str:
-    """Small helper to make bids more readable for chat prompts."""
+def translate_bid(bid: str) -> str:
+    """Make bids more readable for chat prompts."""
     if not bid:
         return ""
     if bid == Game.PASS:
         return Game.PASS
     b = bid
-    b = b.replace('C', '♣️')
-    b = b.replace('D', '♦️')
-    b = b.replace('H', '❤️')
-    b = b.replace('S', '♠️')
-    b = b.replace('N', '🚫')
+    b = b.replace(Game.CLUBS, '♣️')
+    b = b.replace(Game.DIAMONDS, '♦️')
+    b = b.replace(Game.HEARTS, '❤️')
+    b = b.replace(Game.SPADES, '♠️')
+    b = b.replace(Game.NO_TRUMP, '🚫')
     return b
 
 
@@ -95,7 +95,7 @@ async def request_bid_in_chat(bot, game, chat_id: int):
                     return
 
                 try:
-                    await bot.send_message(chat_id=chat_id, text=f"{player.name}: {_translate_bid(bid)}")
+                    await bot.send_message(chat_id=chat_id, text=f"{player.name}: {translate_bid(bid)}")
                 except Exception:
                     logger.exception("Failed to announce AI bid for player %s in chat %s", getattr(player, 'id', None), chat_id)
 
@@ -113,7 +113,7 @@ async def request_bid_in_chat(bot, game, chat_id: int):
                 continue
 
             # Active player is human — prompt them and return
-            current_bid = _translate_bid(getattr(game, 'bid', Game.PASS))
+            current_bid = translate_bid(getattr(game, 'bid', Game.PASS))
             text = f"Current Bid: {current_bid}\n"
             text += f"[{player.name}](tg://user?id={player.id}), your turn to bid!"
             await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
@@ -147,8 +147,42 @@ def translate_card(card: str) -> str:
         return ''
     c = card[::-1]
     c = c.replace('T', '10')
-    c = c.replace('C', '♣️')
-    c = c.replace('D', '♦️')
-    c = c.replace('H', '❤️')
-    c = c.replace('S', '♠️')
+    c = c.replace(Game.CLUBS, '♣️')
+    c = c.replace(Game.DIAMONDS, '♦️')
+    c = c.replace(Game.HEARTS, '❤️')
+    c = c.replace(Game.SPADES, '♠️')
     return c
+
+
+def _get_suit_thumb_url(suit: str) -> str:
+    """Helper to get thumbnail URL for a suit symbol."""
+    suit_urls = {
+        Game.CLUBS: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Card_suit_club.svg/240px-Card_suit_club.svg.png',
+        Game.DIAMONDS: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Card_suit_diamond.svg/240px-Card_suit_diamond.svg.png',
+        Game.HEARTS: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/Card_suit_heart.svg/240px-Card_suit_heart.svg.png',
+        Game.SPADES: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e6/Card_suit_spade.svg/240px-Card_suit_spade.svg.png',
+    }
+    return suit_urls.get(suit, '')
+
+
+def thumb_url_bid(bid: str) -> str:
+    """Return thumbnail URL for a bid based on suit/type.
+    
+    Used for inline query results to show visual icons.
+    """
+    if bid == Game.PASS:
+        return 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/VisualEditor_-_Icon_-_Close.svg/240px-VisualEditor_-_Icon_-_Close.svg.png'
+    if bid[1] == Game.NO_TRUMP:
+        return 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_sign.svg/240px-No_sign.svg.png'
+    return _get_suit_thumb_url(bid[1])
+
+
+def thumb_url_card(card: str) -> str:
+    """Return thumbnail URL for a card based on suit.
+    
+    Used for inline query results to show visual icons.
+    """
+    if not card:
+        return ''
+    return _get_suit_thumb_url(card[0])
+

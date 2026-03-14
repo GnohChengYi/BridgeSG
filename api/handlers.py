@@ -10,6 +10,7 @@ from store import (
     save_game_to_redis,
     game_exists_in_redis,
     load_game_from_redis,
+    set_user_active_game,
 )
 from lobby import get_markup
 
@@ -24,6 +25,10 @@ async def start(update: Update, context):
         return
 
     chat_id = chat.id
+    user_id = update.effective_user.id
+
+    # Record this user's active chat for inline query context
+    set_user_active_game(redis_client, user_id, chat_id)
 
     if game_exists_in_redis(redis_client, chat_id):
         await update.message.reply_text(f"A game already exists.")
@@ -58,6 +63,10 @@ async def stop(update: Update, context):
         return
 
     chat_id = chat.id
+    user_id = update.effective_user.id
+
+    # Record this user's active chat for inline query context
+    set_user_active_game(redis_client, user_id, chat_id)
 
     game = load_game_from_redis(redis_client, chat_id)
     if not game:
@@ -96,7 +105,26 @@ async def stop(update: Update, context):
     await update.message.reply_text("Game stopped.")
 
 
+async def help(update: Update, context):
+    """Async /help handler providing friendly update for bridge players."""
+    logger.info("Processing /help command from user: %s", update.effective_user)
+    chat = update.effective_chat
+    if chat and chat.id:
+        user_id = update.effective_user.id
+        # Record this user's active chat for inline query context
+        set_user_active_game(redis_client, user_id, chat.id)
+
+    message = """🃏 BridgeSG is getting a shiny upgrade! 🚀
+
+We're moving to a modern setup to keep your games fast and reliable. Stay tuned for the latest updates!
+
+Check out our GitHub repo for migration status: https://github.com/GnohChengYi/BridgeSG
+
+Happy bridging! 🃏"""
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+
 # Public mapping of command name -> handler callable. Kept here so the bot
 # wiring can remain focused on parsing and registering handlers.
-COMMAND_HANDLERS = {"start": start, "stop": stop}
+COMMAND_HANDLERS = {"start": start, "stop": stop, "help": help}
 SUPPORTED_COMMANDS = list(COMMAND_HANDLERS.keys())

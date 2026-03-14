@@ -5,10 +5,12 @@ import os
 from flask.cli import load_dotenv
 from http import HTTPStatus
 import asyncio
+import json
 
 from typing import Optional
 from handlers import COMMAND_HANDLERS, SUPPORTED_COMMANDS
 from lobby import CALLBACK_HANDLERS
+from inline_handlers import INLINE_HANDLERS
 
 def extract_command_from_text(text: Optional[str]) -> Optional[str]:
     """Return the command name (without leading slash) if text contains a command.
@@ -56,6 +58,8 @@ def process_update_sync(update_json: dict):
         # may carry the chat id inside callback_query.message.chat.
         message = update_json.get("message") or {}
         callback = update_json.get("callback_query") or {}
+        inline_query = update_json.get("inline_query") or {}
+        chosen_inline_result = update_json.get("chosen_inline_result") or {}
         text = message.get("text", "")
 
         # chat id may be in message.chat or callback_query.message.chat
@@ -65,15 +69,18 @@ def process_update_sync(update_json: dict):
         # If incoming text includes a supported command, process it.
         cmd = extract_command_from_text(text)
 
-        # Also support callback_query updates.
+        # Detect different update types
         is_callback = bool(callback)
+        is_inline_query = bool(inline_query)
+        is_chosen_inline_result = bool(chosen_inline_result)
 
-        # If we don't have a chat id, bail early.
-        if not chat_id:
+        # For inline queries, we don't need chat_id (user-specific)
+        # For other updates, we need chat_id
+        if not (is_inline_query or is_chosen_inline_result) and not chat_id:
             return (HTTPStatus.OK, "no chat id")
 
-        # If neither a supported command nor a callback, nothing to do.
-        if not ((cmd and cmd in SUPPORTED_COMMANDS) or is_callback):
+        # If none of the supported update types, nothing to do
+        if not ((cmd and cmd in SUPPORTED_COMMANDS) or is_callback or is_inline_query or is_chosen_inline_result):
             return (HTTPStatus.OK, "unsupported update")
 
         # We'll build a short-lived Application and register either the
@@ -84,12 +91,19 @@ def process_update_sync(update_json: dict):
                 logger.info("Processing /%s (sync) for chat: %s", cmd, chat_id)
             if is_callback:
                 logger.info("Processing callback_query (sync) for update_id: %s", update_json.get("update_id"))
+            if is_inline_query:
+                logger.info("Processing inline_query (sync) for user: %s", inline_query.get("from", {}).get("id"))
+                logger.info("inline_query payload: %s", json.dumps(inline_query, indent=2))
+            if is_chosen_inline_result:
+                logger.info("Processing chosen_inline_result (sync) for user: %s", chosen_inline_result.get("from", {}).get("id"))
+                logger.info("chosen_inline_result payload: %s", json.dumps(chosen_inline_result, indent=2))
 
             app = Application.builder().token(TELEGRAM_TOKEN).build()
 
             # Attach only the handler(s) we need for this update:
             # - command handler when a supported command was received
-            # - callback handlers only when this is a callback_query update
+            # - callback handlers when this is a callback_query update
+            # - inline handlers when this is an inline_query or chosen_inline_result update
             if cmd:
                 handler_fn = COMMAND_HANDLERS.get(cmd)
                 if handler_fn:
@@ -101,6 +115,13 @@ def process_update_sync(update_json: dict):
                         app.add_handler(h)
                     except Exception:
                         logger.exception("Failed to add callback handler %s", getattr(h, '__name__', repr(h)))
+
+            if is_inline_query or is_chosen_inline_result:
+                for h in INLINE_HANDLERS:
+                    try:
+                        app.add_handler(h)
+                    except Exception:
+                        logger.exception("Failed to add inline handler %s", getattr(h, '__name__', repr(h)))
 
             update = Update.de_json(update_json, app.bot)
 

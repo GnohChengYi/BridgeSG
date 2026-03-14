@@ -86,6 +86,76 @@ def load_game_from_redis(redis_client, chat_id: int):
         return None
 
 
+def set_user_active_game(redis_client, user_id: int, chat_id: int) -> bool:
+    """Store the active chat context for a user in Redis.
+
+    This enables session-based routing for inline queries, which don't include
+    chat context. Whenever a user interacts with a chat (command, callback, etc),
+    we record which chat they're actively using so inline queries can retrieve it.
+
+    Key format: user:{user_id}:active_chat
+    """
+    try:
+        redis_client.set(f"user:{user_id}:active_chat", str(chat_id))
+        return True
+    except Exception:
+        logger.exception("Failed to set active game for user %s in chat %s", user_id, chat_id)
+        return False
+
+
+def get_user_active_game(redis_client, user_id: int) -> Optional[int]:
+    """Retrieve the active chat context for a user from Redis.
+
+    Returns the chat_id if found, else None.
+    This is the primary mechanism for inline queries to determine which game
+    the user is interacting with, since inline_query payloads contain no chat context.
+
+    Key format: user:{user_id}:active_chat
+    """
+    try:
+        chat_id = redis_client.get(f"user:{user_id}:active_chat")
+        if not chat_id:
+            return None
+        return int(chat_id)
+    except Exception:
+        logger.exception("Failed to get active game for user %s", user_id)
+        return None
+
+
+def find_game_by_active_player(redis_client, user_id: int):
+    """Scan Redis for a game where the given user is the active player.
+
+    Returns (chat_id, game) tuple if found, else (None, None).
+    This is a fallback mechanism used when user session lookup fails.
+    For inline query handlers, prefer get_user_active_game + load_game_from_redis first.
+    """
+    try:
+        # Scan all game:* keys in Redis
+        for key in redis_client.scan_iter(match="game:*"):
+            try:
+                data = redis_client.get(key)
+                if not data:
+                    continue
+                game_dict = json.loads(data)
+                active_player_id = game_dict.get('activePlayer')
+                logger.debug("[find_game_by_active_player] Scanned key=%s, activePlayer=%s", key, active_player_id)
+                if active_player_id == user_id:
+                    # Extract chat_id from key (format is "game:123456")
+                    chat_id = int(key.decode('utf-8').split(':')[1])
+                    game = Game.from_dict(game_dict)
+                    logger.info("[find_game_by_active_player] Found match for user_id=%s in chat_id=%s", user_id, chat_id)
+                    return (chat_id, game)
+            except Exception:
+                logger.exception("Failed to parse game from key %s", key)
+                continue
+        logger.info("[find_game_by_active_player] No game found with user_id=%s as activePlayer", user_id)
+        return (None, None)
+    except Exception:
+        logger.exception("Failed to scan Redis for user %s", user_id)
+        return (None, None)
+
+
+
 # Create a module-level redis client at import time so callers can import
 # `store.redis_client` and use it. It fails fast if REDIS_URL is missing.
 REDIS_URL = os.environ.get("REDIS_URL")
