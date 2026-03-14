@@ -96,7 +96,20 @@ async def stop(update: Update, context):
     await update.message.reply_text("Game stopped.")
 
 
+async def help(update: Update, context):
+    """Async /help handler providing friendly update for bridge players."""
+    logger.info("Processing /help command from user: %s", update.effective_user)
+    message = """🃏 BridgeSG is getting a shiny upgrade! 🚀
+
+We're moving to a modern setup to keep your games fast and reliable. Stay tuned for the latest updates!
+
+Check out our GitHub repo for migration status: https://github.com/GnohChengYi/BridgeSG
+
+Happy bridging! 🃏"""
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+
 # Public mapping of command name -> handler callable. Kept here so the bot
 # wiring can remain focused on parsing and registering handlers.
-COMMAND_HANDLERS = {"start": start, "stop": stop}
+COMMAND_HANDLERS = {"start": start, "stop": stop, "help": help}
 SUPPORTED_COMMANDS = list(COMMAND_HANDLERS.keys())
