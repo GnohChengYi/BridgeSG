@@ -24,6 +24,7 @@ Keep edits small, testable, and owned by the module that needs them.
 1. **Audit Phase**: Read `NEXT_STEPS.md` and relevant `api/` files before proposing changes.
 2. **Implementation**: Mark task as `in-progress`. Make focused changes (`replace_string_in_file`, <100 lines).
 3. **Verification**: Run `get_errors`. If dealing with new Telegram types, add `json.dumps()` logging to capture the raw payload.
+   - Use the configured system interpreter from `configure_python_environment`. Do not create or rely on a `venv` unless the user explicitly requests it.
 4. **Documentation**: Mark task completed in `NEXT_STEPS.md`. Provide a concise audit summary (Task status, changes made, next steps).
 5. **Commit**: Always provide a structured commit message at the end of the task.
 
@@ -32,6 +33,7 @@ Keep edits small, testable, and owned by the module that needs them.
 - Preface tool batches with a one-line intent (e.g., "Adding logging to debug inline query context").
 - Avoid editing legacy files unless explicitly porting behavior.
 - Run `get_errors` after every file modification.
+- When issuing terminal commands, confirm the shell state first. If the terminal is in a Python REPL, exit with `exit()` or `quit()` before sending shell commands.
 
 ## Code quality
 
