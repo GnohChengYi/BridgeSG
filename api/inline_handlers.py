@@ -100,7 +100,6 @@ async def chosen_inline_result_handler(update, context):
         success = False
         if game.phase == Game.BID_PHASE:
             success = await _handle_bid_selection(player, selected_id, chat_id, context)
-            if success: await request_bid_in_chat(context.bot, game, chat_id)
         elif game.phase == Game.CALL_PHASE:
             success = await _handle_partner_selection(player, selected_id, chat_id, context)
         elif game.phase == Game.PLAY_PHASE:
@@ -109,6 +108,10 @@ async def chosen_inline_result_handler(update, context):
         if success:
             set_user_active_game(redis_client, user_id, chat_id)
             save_game_to_redis(redis_client, chat_id, game)
+
+            if game.phase == Game.BID_PHASE and getattr(game.activePlayer, 'isAI', False):
+                await request_bid_in_chat(context.bot, game, chat_id)
+                save_game_to_redis(redis_client, chat_id, game)
 
     except Exception:
         logger.exception("Failed to process inline result for user %s", user_id)

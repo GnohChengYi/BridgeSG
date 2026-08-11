@@ -69,6 +69,37 @@ def translate_bid(bid: str) -> str:
     return b
 
 
+def parse_display_bid(display: str) -> str:
+    """Convert a user-visible bid (e.g. '1♣️' or 'PASS' or '1🚫') to the
+    canonical internal bid id used by `Game` (e.g. '1C', 'PASS', '1N').
+
+    This helps handle Telegram clients that deliver inline choices as
+    plain `message.text` using emoji/symbols for suits.
+    """
+    if not display:
+        return ''
+    s = display.strip().upper()
+    if s == Game.PASS:
+        return Game.PASS
+    # map visible suit symbols back to canonical letters
+    s = s.replace('♣️', Game.CLUBS)
+    s = s.replace('♣', Game.CLUBS)
+    s = s.replace('♦️', Game.DIAMONDS)
+    s = s.replace('♦', Game.DIAMONDS)
+    s = s.replace('❤️', Game.HEARTS)
+    s = s.replace('❤', Game.HEARTS)
+    s = s.replace('♥️', Game.HEARTS)
+    s = s.replace('♥', Game.HEARTS)
+    s = s.replace('♠️', Game.SPADES)
+    s = s.replace('♠', Game.SPADES)
+    # handle no-trump emoji
+    s = s.replace('🚫', Game.NO_TRUMP)
+    s = s.replace('N', Game.NO_TRUMP) if len(s) == 2 and s[1] == 'N' else s
+    # At this point we expect something like '1C' or '2N'
+    s = s.replace('\uFE0F', '')
+    return s
+
+
 async def request_bid_in_chat(bot, game, chat_id: int):
     """Post a prompt in the chat asking the active player to bid.
 
@@ -76,67 +107,62 @@ async def request_bid_in_chat(bot, game, chat_id: int):
     composes a short message and mentions the active player using tg://user.
     """
     try:
+        # If the game has already moved out of bidding, nothing to prompt.
+        if game.phase != Game.BID_PHASE:
+            if game.phase == Game.CALL_PHASE:
+                player = game.activePlayer
+                if getattr(player, 'isAI', False):
+                    try:
+                        card = player.call_partner()
+                        try:
+                            await bot.send_message(chat_id=chat_id, text=f"{player.name} called partner: {translate_card(card)}")
+                        except Exception:
+                            logger.exception("Failed to announce AI partner call for player %s in chat %s", getattr(player, 'id', None), chat_id)
+                    except Exception:
+                        logger.exception("AI call_partner failed for player %s in chat %s", getattr(player, 'id', None), chat_id)
+                    return
+                await bot.send_message(chat_id=chat_id, text=f"[{player.name}](tg://user?id={player.id}), you won the bid! Choose your partner's card!", parse_mode=ParseMode.MARKDOWN)
+            return
+
         # Loop so that consecutive AI turns are played out immediately.
-        while True:
+        while game.phase == Game.BID_PHASE and getattr(game.activePlayer, 'isAI', False):
             player = game.activePlayer
             if not player:
                 return
 
-            # If we've moved to CALL_PHASE, stop here and let caller decide next step
-            if game.phase == Game.CALL_PHASE:
+            try:
+                bid = player.make_bid()
+            except Exception:
+                logger.exception("AI make_bid failed for player %s in chat %s", getattr(player, 'id', None), chat_id)
+                return
+
+            try:
+                await bot.send_message(chat_id=chat_id, text=f"{player.name}: {translate_bid(bid)}")
+            except Exception:
+                logger.exception("Failed to announce AI bid for player %s in chat %s", getattr(player, 'id', None), chat_id)
+
+            try:
+                await asyncio.sleep(1)
+            except Exception:
+                pass
+
+            if game.phase != Game.BID_PHASE:
                 break
 
-            # If the active player is an AI, have it bid automatically and announce
-            if getattr(player, "isAI", False):
-                try:
-                    bid = player.make_bid()
-                except Exception:
-                    logger.exception("AI make_bid failed for player %s in chat %s", getattr(player, 'id', None), chat_id)
-                    return
-
-                try:
-                    await bot.send_message(chat_id=chat_id, text=f"{player.name}: {translate_bid(bid)}")
-                except Exception:
-                    logger.exception("Failed to announce AI bid for player %s in chat %s", getattr(player, 'id', None), chat_id)
-
-                # small pause to avoid rapid-fire messages
-                try:
-                    await asyncio.sleep(1)
-                except Exception:
-                    # sleep is best-effort
-                    pass
-
-                # continue the loop; if next player is human, the loop will break below
-                # also if bidding ended or moved to CALL_PHASE, the loop will exit
-                if game.phase != Game.BID_PHASE:
-                    break
-                continue
-
-            # Active player is human — prompt them and return
-            current_bid = translate_bid(getattr(game, 'bid', Game.PASS))
-            text = f"Current Bid: {current_bid}\n"
-            text += f"[{player.name}](tg://user?id={player.id}), your turn to bid!"
-            await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+        if game.phase != Game.BID_PHASE:
+            await request_bid_in_chat(bot, game, chat_id)
             return
 
-        # If we exit loop and are in CALL_PHASE, handle partner selection.
-        if game.phase == Game.CALL_PHASE:
-            player = game.activePlayer
-            if getattr(player, 'isAI', False):
-                try:
-                    card = player.call_partner()
-                    # announce the AI's partner call (translate card)
-                    try:
-                        await bot.send_message(chat_id=chat_id, text=f"{player.name} called partner: {translate_card(card)}")
-                    except Exception:
-                        logger.exception("Failed to announce AI partner call for player %s in chat %s", getattr(player, 'id', None), chat_id)
-                except Exception:
-                    logger.exception("AI call_partner failed for player %s in chat %s", getattr(player, 'id', None), chat_id)
-                return
-            else:
-                # human needs to choose partner
-                await bot.send_message(chat_id=chat_id, text=f"[{player.name}](tg://user?id={player.id}), you won the bid! Choose your partner's card!", parse_mode=ParseMode.MARKDOWN)
-                return
+        # Active player is human — prompt them and return
+        player = game.activePlayer
+        if not player:
+            return
+
+        current_bid = translate_bid(getattr(game, 'bid', Game.PASS))
+        text = f"Current Bid: {current_bid}\n"
+        text += f"[{player.name}](tg://user?id={player.id}), your turn to bid!"
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+        return
     except Exception:
         logger.exception("Failed to post bid prompt for chat %s", chat_id)
 
