@@ -69,6 +69,37 @@ def translate_bid(bid: str) -> str:
     return b
 
 
+def parse_display_bid(display: str) -> str:
+    """Convert a user-visible bid (e.g. '1♣️' or 'PASS' or '1🚫') to the
+    canonical internal bid id used by `Game` (e.g. '1C', 'PASS', '1N').
+
+    This helps handle Telegram clients that deliver inline choices as
+    plain `message.text` using emoji/symbols for suits.
+    """
+    if not display:
+        return ''
+    s = display.strip().upper()
+    if s == Game.PASS:
+        return Game.PASS
+    # map visible suit symbols back to canonical letters
+    s = s.replace('♣️', Game.CLUBS)
+    s = s.replace('♣', Game.CLUBS)
+    s = s.replace('♦️', Game.DIAMONDS)
+    s = s.replace('♦', Game.DIAMONDS)
+    s = s.replace('❤️', Game.HEARTS)
+    s = s.replace('❤', Game.HEARTS)
+    s = s.replace('♥️', Game.HEARTS)
+    s = s.replace('♥', Game.HEARTS)
+    s = s.replace('♠️', Game.SPADES)
+    s = s.replace('♠', Game.SPADES)
+    # handle no-trump emoji
+    s = s.replace('🚫', Game.NO_TRUMP)
+    s = s.replace('N', Game.NO_TRUMP) if len(s) == 2 and s[1] == 'N' else s
+    # At this point we expect something like '1C' or '2N'
+    s = s.replace('\uFE0F', '')
+    return s
+
+
 async def request_bid_in_chat(bot, game, chat_id: int):
     """Post a prompt in the chat asking the active player to bid.
 

@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
 import logging
 import os
 from flask.cli import load_dotenv
@@ -8,7 +8,8 @@ import asyncio
 import json
 
 from typing import Optional
-from handlers import COMMAND_HANDLERS, SUPPORTED_COMMANDS
+from handlers import COMMAND_HANDLERS, SUPPORTED_COMMANDS, handle_text_message
+from game_utils import parse_display_bid
 from lobby import CALLBACK_HANDLERS
 from inline_handlers import INLINE_HANDLERS
 
@@ -62,6 +63,26 @@ def process_update_sync(update_json: dict):
         chosen_inline_result = update_json.get("chosen_inline_result") or {}
         text = message.get("text", "")
 
+        # Some Telegram clients deliver the chosen-inline-result as a regular
+        # message with `via_bot` set. If so, try to parse the visible text
+        # (e.g. '1♣️') into a canonical result id (e.g. '1C') and synthesize a
+        # `chosen_inline_result` so existing inline handlers run unchanged.
+        if not chosen_inline_result and message.get('via_bot') and text:
+            try:
+                parsed = parse_display_bid(text)
+                if parsed:
+                    update_json['chosen_inline_result'] = {
+                        'result_id': parsed,
+                        'from': message.get('from', {}),
+                        'query': text,
+                    }
+                    chosen_inline_result = update_json['chosen_inline_result']
+                    # replace text so downstream command detection won't treat
+                    # this as a normal chat message
+                    text = ''
+            except Exception:
+                logger.exception('Failed to synthesize chosen_inline_result from message')
+
         # chat id may be in message.chat or callback_query.message.chat
         chat = message.get("chat") or (callback.get("message") or {}).get("chat") or {}
         chat_id = chat.get("id")
@@ -108,6 +129,9 @@ def process_update_sync(update_json: dict):
                 handler_fn = COMMAND_HANDLERS.get(cmd)
                 if handler_fn:
                     app.add_handler(CommandHandler(cmd, handler_fn))
+
+            if not is_inline_query and not is_chosen_inline_result:
+                app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
 
             if is_callback:
                 for h in CALLBACK_HANDLERS:
