@@ -14,7 +14,7 @@ from store import (
 from game_utils import (
     translate_bid, translate_card, 
     thumb_url_bid, thumb_url_card, 
-    request_bid_in_chat
+    request_bid_in_chat, request_card_play_in_chat
 )
 
 logger = logging.getLogger(__name__)
@@ -109,7 +109,17 @@ async def chosen_inline_result_handler(update, context):
             set_user_active_game(redis_client, user_id, chat_id)
             save_game_to_redis(redis_client, chat_id, game)
 
-            if getattr(game.activePlayer, 'isAI', False) and game.phase in (Game.BID_PHASE, Game.CALL_PHASE):
+            if game.phase == Game.PLAY_PHASE:
+                if getattr(game.activePlayer, 'isAI', False):
+                    await request_card_play_in_chat(context.bot, game, chat_id)
+                else:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"[{game.activePlayer.name}](tg://user?id={game.activePlayer.id}), your turn to play!",
+                        parse_mode='Markdown',
+                    )
+                save_game_to_redis(redis_client, chat_id, game)
+            elif getattr(game.activePlayer, 'isAI', False) and game.phase in (Game.BID_PHASE, Game.CALL_PHASE):
                 await request_bid_in_chat(context.bot, game, chat_id)
                 save_game_to_redis(redis_client, chat_id, game)
 

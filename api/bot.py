@@ -9,7 +9,7 @@ import json
 
 from typing import Optional
 from handlers import COMMAND_HANDLERS, SUPPORTED_COMMANDS, handle_text_message
-from game_utils import parse_display_bid
+from game_utils import parse_display_bid, parse_display_card
 from lobby import CALLBACK_HANDLERS
 from inline_handlers import INLINE_HANDLERS
 
@@ -69,7 +69,7 @@ def process_update_sync(update_json: dict):
         # `chosen_inline_result` so existing inline handlers run unchanged.
         if not chosen_inline_result and message.get('via_bot') and text:
             try:
-                parsed = parse_display_bid(text)
+                parsed = parse_display_card(text) or parse_display_bid(text)
                 if parsed:
                     update_json['chosen_inline_result'] = {
                         'result_id': parsed,

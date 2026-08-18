@@ -1,4 +1,3 @@
-import importlib
 import types
 
 
@@ -73,3 +72,60 @@ def test_chosen_inline_result_handler_requests_ai_partner_call_after_human_pass(
     assert calls, "expected the bot to continue into the AI call phase after a human pass"
     assert game.phase == Game.CALL_PHASE
     assert game.activePlayer is game.declarer
+
+
+def test_request_bid_in_chat_saves_game_and_prompts_human_after_ai_partner_call(monkeypatch):
+    import asyncio
+
+    import api.game_utils as game_utils
+    from api.bridge import Game
+
+    game = Game(1)
+    game.add_human(10, "Human")
+    for _ in range(3):
+        game.add_AI()
+
+    ai = game.players[1]
+    human = game.players[0]
+    game.players = [ai, human, game.players[2], game.players[3]]
+    game.activePlayer = ai
+    game.declarer = ai
+    game.phase = Game.CALL_PHASE
+    game.bid = "1S"
+    game.trump = ""
+    game.partnerCard = None
+
+    human.hand = ["CA", "H2", "D2", "S2", "C2", "H3", "D3", "S3", "C3", "H4", "D4", "S4", "C4"]
+    ai.hand = ["SA", "SK", "SQ", "SJ", "ST", "S9", "S8", "S7", "S6", "S5", "S4", "S3", "S2"]
+
+    class FakeBot:
+        def __init__(self):
+            self.messages = []
+
+        async def send_message(self, **kwargs):
+            self.messages.append(kwargs)
+            return None
+
+    bot = FakeBot()
+    save_calls = []
+    prompt_messages = []
+
+    def fake_partner(self, card='SA'):
+        game.phase = Game.PLAY_PHASE
+        game.partnerCard = 'CA'
+        game.activePlayer = human
+        return 'CA'
+
+    def fake_save_game_to_redis(redis_client, chat_id, game_obj):
+        save_calls.append((chat_id, game_obj.phase, game_obj.activePlayer.name if game_obj.activePlayer else None))
+        return True
+
+    monkeypatch.setattr(type(ai), 'call_partner', fake_partner)
+    monkeypatch.setattr(game_utils, 'save_game_to_redis', fake_save_game_to_redis)
+
+    asyncio.run(game_utils.request_bid_in_chat(bot, game, 123))
+
+    assert save_calls, "expected game state to be saved after the AI partner call"
+    assert game.phase == Game.PLAY_PHASE
+    assert game.activePlayer is human
+    assert any("your turn to play!" in message.get("text", "") for message in bot.messages)
