@@ -109,7 +109,7 @@ async def chosen_inline_result_handler(update, context):
             set_user_active_game(redis_client, user_id, chat_id)
             save_game_to_redis(redis_client, chat_id, game)
 
-            if game.phase == Game.BID_PHASE and getattr(game.activePlayer, 'isAI', False):
+            if getattr(game.activePlayer, 'isAI', False) and game.phase in (Game.BID_PHASE, Game.CALL_PHASE):
                 await request_bid_in_chat(context.bot, game, chat_id)
                 save_game_to_redis(redis_client, chat_id, game)
 

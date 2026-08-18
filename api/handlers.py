@@ -165,7 +165,7 @@ async def handle_text_message(update: Update, context):
     save_game_to_redis(redis_client, chat.id, game)
     await update.message.reply_text(f'{player.name}: {translate_bid(bid_text)}')
 
-    if getattr(game.activePlayer, 'isAI', False):
+    if getattr(game.activePlayer, 'isAI', False) and game.phase in (Game.BID_PHASE, Game.CALL_PHASE):
         await request_bid_in_chat(context.bot, game, chat.id)
         save_game_to_redis(redis_client, chat.id, game)
 
