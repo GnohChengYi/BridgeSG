@@ -22,11 +22,15 @@ Keep edits small, testable, and owned by the module that needs them.
 ## Workflow
 
 1. **Audit Phase**: Read `NEXT_STEPS.md` and relevant `api/` files before proposing changes.
-2. **Implementation**: Mark task as `in-progress`. Make focused changes (`replace_string_in_file`, <100 lines).
-3. **Verification**: Run `get_errors`. If dealing with new Telegram types, add `json.dumps()` logging to capture the raw payload.
+2. **Session Memory (for multi-step debugging)**: Create `/memories/session/debug_<issue>.md` immediately. Record hypotheses with confidence levels, evidence gathered, and what was tested. Update it as you progress.
+3. **Implementation**: Mark task as `in-progress`. Make focused changes (`replace_string_in_file`, <100 lines). After EACH file edit, run `get_errors` to verify no breakage.
    - Use the configured system interpreter from `configure_python_environment`. Do not create or rely on a `venv` unless the user explicitly requests it.
-4. **Documentation**: Mark task completed in `NEXT_STEPS.md`. Provide a concise audit summary (Task status, changes made, next steps).
-5. **Commit**: Always provide a structured commit message at the end of the task.
+   - If dealing with new Telegram types, add `json.dumps()` logging to capture the raw payload.
+4. **Verification**: 
+   - Run targeted regression tests to confirm the fix works.
+   - Then run the FULL test suite (`pytest tests/`) to catch unintended regressions before marking complete.
+5. **Documentation**: **MANDATORY** — Update `NEXT_STEPS.md` with task completion status, what was fixed, and remaining work. This is the single source of truth for task state.
+6. **Commit**: Always provide a structured commit message matching the actual changes made.
 
 ## Operational rules
 
@@ -42,10 +46,11 @@ Keep edits small, testable, and owned by the module that needs them.
 
 ## Code quality
 
-- **DRY**: Extract duplicate code into helpers.
+- **DRY**: Extract duplicate code into helpers. When multiple functions share identical mappings or transformations (e.g., suit symbol normalization), consolidate into a shared constant or utility function.
 - **Constants**: Replace magic strings with defined constants (e.g., `Game.CLUBS`).
 - **Single Responsibility**: Break large functions into focused helpers (e.g., `_build_bid_results`).
 - **Defensive**: Raise explicit errors for missing references (e.g., when a Game object fails to load).
+- **Refactoring Opportunities**: During implementation, if you notice duplicated logic between functions, document it in your session memory for the next refactoring pass (don't refactor mid-fix unless it's in the same module).
 
 ## Telegram bot patterns
 
@@ -58,13 +63,14 @@ Keep edits small, testable, and owned by the module that needs them.
 ### Root-cause diagnosis strategy
 1. **Static code analysis first**: Read the relevant code paths end-to-end before running anything. State transitions, guard conditions, and control flow are often visible without execution.
 2. **Form hypotheses with confidence levels**: Before building any test or reproduction, write out 2-3 hypotheses about the root cause and assign confidence (0-100%). This focuses investigation.
-3. **Minimal reproduction before full test suite**: Verify the hypothesis with the simplest possible script (mocked dependencies, direct method calls). Do NOT build pytest harness until the fix is confirmed to work.
-4. **Session memory tracking**: Use `/memories/session/` to record hypotheses, what was tested, and evidence collected. This prevents redundant exploration and clarifies the reasoning trail.
+3. **Session memory (MANDATORY for multi-step debugging)**: Create `/memories/session/debug_<issue>.md` upfront. Record hypotheses with confidence levels, evidence gathered, what was tested, and what was ruled out. Update it as progress is made. This prevents redundant exploration and clarifies the reasoning trail.
+4. **Minimal reproduction before full test suite**: Verify the hypothesis with the simplest possible script (mocked dependencies, direct method calls). Do NOT build pytest harness until the fix is confirmed to work.
 
 ### When to build tests vs. when to skip
 - **Build tests (full pytest)**: After confirming the fix works, only if the fix involves code paths that will be modified again or need regression coverage.
 - **Skip full tests**: For one-off bug fixes in stable code. A focused unit-level check is sufficient to verify the fix doesn't regress.
 - **Environment constraints**: If Redis or other infrastructure is not available in the test environment, mock it at the import level rather than trying to work around it.
+- **Full Test Suite (MANDATORY)**: Before completing a task, always run `pytest tests/` to verify no unintended regressions in other modules. Only targeted tests can miss broader issues.
 
 - If `player.game` is None: verify `Game.from_dict()` back-references.
 - Stale state: Force `load_game_from_redis` to avoid process-local stale data.
