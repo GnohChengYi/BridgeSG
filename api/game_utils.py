@@ -70,6 +70,52 @@ def translate_bid(bid: str) -> str:
     return b
 
 
+def parse_display_card(display: str) -> str:
+    """Convert a visible card like '6♦️' or 'A♠️' into the canonical bridge code.
+
+    The in-game format is suit-first (e.g. 'D6', 'SA'), while Telegram often
+    sends the display as rank-first with emoji suit markers (e.g. '6♦️').
+    """
+    if not display:
+        return ''
+    s = display.strip().upper().replace('\uFE0F', '')
+    if not s:
+        return ''
+    if s == Game.PASS:
+        return Game.PASS
+
+    # Normalize visible suit symbols back to canonical letters.
+    mapping = {
+        '♣': Game.CLUBS,
+        '♦': Game.DIAMONDS,
+        '♥': Game.HEARTS,
+        '❤': Game.HEARTS,
+        '♠': Game.SPADES,
+        'C': Game.CLUBS,
+        'D': Game.DIAMONDS,
+        'H': Game.HEARTS,
+        'S': Game.SPADES,
+    }
+    for symbol, suit in mapping.items():
+        s = s.replace(symbol, suit)
+
+    # Already in canonical suit-first form: 'D6' or 'SA'.
+    if len(s) >= 2 and s[0] in Game.suits and s[1] in Game.numbers + '10':
+        rank = s[1:]
+        if rank == '10':
+            rank = 'T'
+        return f"{s[0]}{rank}"
+
+    # Rank-first form like '6D' or 'AS' from a Telegram plain-text fallback.
+    if len(s) >= 2 and s[-1] in Game.suits:
+        rank = s[:-1]
+        if rank == '10':
+            rank = 'T'
+        return f"{s[-1]}{rank}"
+
+    return s
+
+
 def parse_display_bid(display: str) -> str:
     """Convert a user-visible bid (e.g. '1♣️' or 'PASS' or '1🚫') to the
     canonical internal bid id used by `Game` (e.g. '1C', 'PASS', '1N').
@@ -82,22 +128,32 @@ def parse_display_bid(display: str) -> str:
     s = display.strip().upper()
     if s == Game.PASS:
         return Game.PASS
+
+    normalized = s.replace('♣️', Game.CLUBS)
+    normalized = normalized.replace('♣', Game.CLUBS)
+    normalized = normalized.replace('♦️', Game.DIAMONDS)
+    normalized = normalized.replace('♦', Game.DIAMONDS)
+    normalized = normalized.replace('❤️', Game.HEARTS)
+    normalized = normalized.replace('❤', Game.HEARTS)
+    normalized = normalized.replace('♥️', Game.HEARTS)
+    normalized = normalized.replace('♥', Game.HEARTS)
+    normalized = normalized.replace('♠️', Game.SPADES)
+    normalized = normalized.replace('♠', Game.SPADES)
+    normalized = normalized.replace('\uFE0F', '')
+
+    # Card text is not a bid; convert it using the card parser before we decide
+    # whether the text is a bid or a card. This prevents Telegram rank-first
+    # card messages such as '6♦️' from being interpreted as the invalid '6D'.
+    if len(normalized) >= 2 and (
+        (normalized[0] in Game.numbers and normalized[-1] in Game.suits) or
+        (normalized[0] in Game.suits and normalized[1] in Game.numbers + '10')
+    ):
+        return parse_display_card(s)
+
     # map visible suit symbols back to canonical letters
-    s = s.replace('♣️', Game.CLUBS)
-    s = s.replace('♣', Game.CLUBS)
-    s = s.replace('♦️', Game.DIAMONDS)
-    s = s.replace('♦', Game.DIAMONDS)
-    s = s.replace('❤️', Game.HEARTS)
-    s = s.replace('❤', Game.HEARTS)
-    s = s.replace('♥️', Game.HEARTS)
-    s = s.replace('♥', Game.HEARTS)
-    s = s.replace('♠️', Game.SPADES)
-    s = s.replace('♠', Game.SPADES)
-    # handle no-trump emoji
+    s = normalized
     s = s.replace('🚫', Game.NO_TRUMP)
     s = s.replace('N', Game.NO_TRUMP) if len(s) == 2 and s[1] == 'N' else s
-    # At this point we expect something like '1C' or '2N'
-    s = s.replace('\uFE0F', '')
     return s
 
 
