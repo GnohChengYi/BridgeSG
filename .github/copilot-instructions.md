@@ -35,6 +35,11 @@ Keep edits small, testable, and owned by the module that needs them.
 - Run `get_errors` after every file modification.
 - When issuing terminal commands, confirm the shell state first. If the terminal is in a Python REPL, exit with `exit()` or `quit()` before sending shell commands.
 
+### Terminal execution best practices
+- **PowerShell vs bash syntax**: Windows PowerShell does NOT support bash heredocs (`<<EOF`) or the same pipe semantics. If terminal command fails with syntax errors, immediately try `mcp_pylance_mcp_s_pylanceRunCodeSnippet` instead.
+- **When to use direct Python snippets**: For any one-off reproduction, verification, or diagnostic checks, prefer the Python snippet tool over terminal commands. It avoids shell quoting and syntax issues entirely.
+- **Terminal for side effects only**: Reserve terminal commands for operations that require actual shell state (git, build steps, package installs) or when explicitly building infrastructure.
+
 ## Code quality
 
 - **DRY**: Extract duplicate code into helpers.
@@ -50,6 +55,17 @@ Keep edits small, testable, and owned by the module that needs them.
 
 ## Refactoring & Debugging
 
+### Root-cause diagnosis strategy
+1. **Static code analysis first**: Read the relevant code paths end-to-end before running anything. State transitions, guard conditions, and control flow are often visible without execution.
+2. **Form hypotheses with confidence levels**: Before building any test or reproduction, write out 2-3 hypotheses about the root cause and assign confidence (0-100%). This focuses investigation.
+3. **Minimal reproduction before full test suite**: Verify the hypothesis with the simplest possible script (mocked dependencies, direct method calls). Do NOT build pytest harness until the fix is confirmed to work.
+4. **Session memory tracking**: Use `/memories/session/` to record hypotheses, what was tested, and evidence collected. This prevents redundant exploration and clarifies the reasoning trail.
+
+### When to build tests vs. when to skip
+- **Build tests (full pytest)**: After confirming the fix works, only if the fix involves code paths that will be modified again or need regression coverage.
+- **Skip full tests**: For one-off bug fixes in stable code. A focused unit-level check is sufficient to verify the fix doesn't regress.
+- **Environment constraints**: If Redis or other infrastructure is not available in the test environment, mock it at the import level rather than trying to work around it.
+
 - If `player.game` is None: verify `Game.from_dict()` back-references.
 - Stale state: Force `load_game_from_redis` to avoid process-local stale data.
 - **JSON Context**: When debugging inline queries, log raw payloads to identify missing `chat_id` or `chat_type` fields.
@@ -58,6 +74,11 @@ Keep edits small, testable, and owned by the module that needs them.
 
 - Keep `NEXT_STEPS.md` (<50 lines) as the source of truth for current blockers and tasks.
 - Use decision trees for logic: "If X observation → do Y; else do Z."
+- **Session memory for debugging**: When investigating a bug with multiple hypotheses, use `/memories/session/` to:
+  - Record the initial symptom and hypotheses with confidence levels
+  - Log evidence as it's gathered (code paths reviewed, test results, state transitions observed)
+  - Track what was tried and ruled out
+  - This prevents redundant exploration and provides clarity on the reasoning chain
 
 ## Commit messages
 
