@@ -118,6 +118,10 @@ async def request_bid_in_chat(bot, game, chat_id: int):
                             await bot.send_message(chat_id=chat_id, text=f"{player.name} called partner: {translate_card(card)}")
                         except Exception:
                             logger.exception("Failed to announce AI partner call for player %s in chat %s", getattr(player, 'id', None), chat_id)
+                        # After AI calls partner, phase changes to PLAY_PHASE
+                        # If the leading player is AI, let them play cards
+                        if game.phase == Game.PLAY_PHASE and getattr(game.activePlayer, 'isAI', False):
+                            await request_card_play_in_chat(bot, game, chat_id)
                     except Exception:
                         logger.exception("AI call_partner failed for player %s in chat %s", getattr(player, 'id', None), chat_id)
                     return
@@ -211,4 +215,79 @@ def thumb_url_card(card: str) -> str:
     if not card:
         return ''
     return _get_suit_thumb_url(card[0])
+
+
+async def request_card_play_in_chat(bot, game, chat_id: int):
+    """Post card play prompts in the chat during PLAY_PHASE.
+    
+    Handles consecutive AI card plays in a loop, completing tricks as they
+    occur. When an AI player is done or the game ends, transitions to prompting
+    the next human player or announcing game results.
+    """
+    try:
+        # Loop: execute AI card plays immediately until game ends or human's turn
+        while game.phase == Game.PLAY_PHASE and getattr(game.activePlayer, 'isAI', False):
+            player = game.activePlayer
+            if not player:
+                return
+
+            try:
+                card = player.play_card()
+                if not card:
+                    logger.warning("AI play_card failed for player %s in chat %s", player.id, chat_id)
+                    return
+            except Exception:
+                logger.exception("AI play_card failed for player %s in chat %s", getattr(player, 'id', None), chat_id)
+                return
+
+            try:
+                await bot.send_message(chat_id=chat_id, text=f"{player.name} played {translate_card(card)}")
+            except Exception:
+                logger.exception("Failed to announce AI card play for player %s in chat %s", getattr(player, 'id', None), chat_id)
+
+            try:
+                await asyncio.sleep(1)
+            except Exception:
+                pass
+
+            # Check if all 4 cards have been played in the current trick
+            if all(game.currentTrick):  # All 4 positions filled
+                try:
+                    game.complete_trick()
+                    try:
+                        winner = game.players[0]  # After reordering, winner is first
+                        await bot.send_message(chat_id=chat_id, text=f"{winner.name} won the trick!")
+                    except Exception:
+                        logger.exception("Failed to announce trick winner in chat %s", chat_id)
+                except Exception:
+                    logger.exception("Failed to complete trick in chat %s", chat_id)
+                    return
+
+            # Break if game has ended
+            if game.phase == Game.END_PHASE:
+                break
+
+        # Handle game end
+        if game.phase == Game.END_PHASE:
+            try:
+                winners_str = ', '.join(p.name for p in game.winners)
+                await bot.send_message(chat_id=chat_id, text=f"Game ended! Winners: {winners_str}")
+            except Exception:
+                logger.exception("Failed to announce game end in chat %s", chat_id)
+            return
+
+        # If game is still in PLAY_PHASE and activePlayer is human, prompt them
+        if game.phase == Game.PLAY_PHASE:
+            player = game.activePlayer
+            if player and not getattr(player, 'isAI', False):
+                try:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"[{player.name}](tg://user?id={player.id}), your turn to play!",
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                except Exception:
+                    logger.exception("Failed to prompt human player in chat %s", chat_id)
+    except Exception:
+        logger.exception("Failed in card play phase for chat %s", chat_id)
 
