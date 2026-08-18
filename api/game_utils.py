@@ -4,6 +4,7 @@ from telegram.constants import ParseMode
 import asyncio
 
 from bridge import Game
+from store import redis_client, save_game_to_redis
 
 logger = logging.getLogger(__name__)
 
@@ -115,13 +116,24 @@ async def request_bid_in_chat(bot, game, chat_id: int):
                     try:
                         card = player.call_partner()
                         try:
+                            save_game_to_redis(redis_client, chat_id, game)
                             await bot.send_message(chat_id=chat_id, text=f"{player.name} called partner: {translate_card(card)}")
                         except Exception:
                             logger.exception("Failed to announce AI partner call for player %s in chat %s", getattr(player, 'id', None), chat_id)
-                        # After AI calls partner, phase changes to PLAY_PHASE
-                        # If the leading player is AI, let them play cards
-                        if game.phase == Game.PLAY_PHASE and getattr(game.activePlayer, 'isAI', False):
-                            await request_card_play_in_chat(bot, game, chat_id)
+                        # After AI calls partner, phase changes to PLAY_PHASE.
+                        # Persist the updated state before we resume the turn flow,
+                        # then continue with the next player regardless of whether
+                        # that player is AI or human.
+                        if game.phase == Game.PLAY_PHASE:
+                            save_game_to_redis(redis_client, chat_id, game)
+                            if getattr(game.activePlayer, 'isAI', False):
+                                await request_card_play_in_chat(bot, game, chat_id)
+                            else:
+                                await bot.send_message(
+                                    chat_id=chat_id,
+                                    text=f"[{game.activePlayer.name}](tg://user?id={game.activePlayer.id}), your turn to play!",
+                                    parse_mode=ParseMode.MARKDOWN,
+                                )
                     except Exception:
                         logger.exception("AI call_partner failed for player %s in chat %s", getattr(player, 'id', None), chat_id)
                     return
@@ -236,6 +248,7 @@ async def request_card_play_in_chat(bot, game, chat_id: int):
                 if not card:
                     logger.warning("AI play_card failed for player %s in chat %s", player.id, chat_id)
                     return
+                save_game_to_redis(redis_client, chat_id, game)
             except Exception:
                 logger.exception("AI play_card failed for player %s in chat %s", getattr(player, 'id', None), chat_id)
                 return
@@ -275,6 +288,8 @@ async def request_card_play_in_chat(bot, game, chat_id: int):
             except Exception:
                 logger.exception("Failed to announce game end in chat %s", chat_id)
             return
+
+        save_game_to_redis(redis_client, chat_id, game)
 
         # If game is still in PLAY_PHASE and activePlayer is human, prompt them
         if game.phase == Game.PLAY_PHASE:
